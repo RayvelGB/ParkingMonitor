@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login - Smart Parking Monitor</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="shortcut icon" href="/static/favicon.png" type="image/x-icon">
+    <style>
+        .form-container {
+            transition: all 0.5s ease-in-out;
+        }
+        .hidden {
+            display: none;
+        }
+    </style>
+</head>
+<body class="bg-gray-900 text-gray-100 min-h-screen flex flex-col items-center justify-center">
+
+    <div class="container mx-auto px-4 py-6 text-center">
+        <div class="flex items-center justify-center mb-8">
+            <i class="fas fa-car text-blue-500 text-4xl mr-4"></i>
+            <h1 class="text-3xl md:text-4xl font-bold bg-gradient-to-r from-blue-400 to-blue-600 bg-clip-text text-transparent pb-1">
+                Smart Parking Monitor
+            </h1>
+        </div>
+
+        <div class="bg-gray-800 rounded-xl shadow-xl p-8 w-full max-w-md mx-auto">
+            <!-- Login Form -->
+            <div id="login-form" class="form-container">
+                <h2 class="text-2xl font-bold text-center mb-6">Login</h2>
+                <div class="space-y-4">
+                    <input type="text" id="login-username" placeholder="Username" autocomplete="username" class="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-sm">
+                    <input type="password" id="login-password" placeholder="Password" autocomplete="current-password" class="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-sm">
+                    <button id="login-btn" class="w-full bg-blue-600 hover:bg-blue-700 py-3 rounded-lg flex items-center justify-center transition">
+                        <i class="fas fa-sign-in-alt mr-2"></i> Login
+                    </button>
+                </div>
+                <p class="text-sm text-gray-400 mt-6">
+                    Don't have an account? <a href="#" id="show-register" class="text-blue-400 hover:underline">Register here</a>
+                </p>
+            </div>
+
+            <!-- Registration Form (Initially Hidden) -->
+            <div id="register-form" class="form-container hidden opacity-0">
+                 <h2 class="text-2xl font-bold text-center mb-6">Create Account</h2>
+                <div class="space-y-4">
+                    <input type="text" id="register-username" placeholder="Choose a Username" autocomplete="new-username" class="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-sm">
+                    <input type="password" id="register-password" placeholder="Choose a Password" autocomplete="new-password" class="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-sm">
+                    <button id="register-btn" class="w-full bg-green-600 hover:bg-green-700 py-3 rounded-lg flex items-center justify-center transition">
+                        <i class="fas fa-user-plus mr-2"></i> Register
+                    </button>
+                </div>
+                <p class="text-sm text-gray-400 mt-6">
+                    Already have an account? <a href="#" id="show-login" class="text-blue-400 hover:underline">Login here</a>
+                </p>
+            </div>
+            <p id="status" class="text-center text-red-400 min-h-[24px] mt-4"></p>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const loginForm = document.getElementById('login-form');
+            const registerForm = document.getElementById('register-form');
+            const showRegisterLink = document.getElementById('show-register');
+            const showLoginLink = document.getElementById('show-login');
+            const statusEl = document.getElementById('status');
+            
+            const loginUser = document.getElementById('login-username');
+            const loginPass = document.getElementById('login-password');
+            const registerUser = document.getElementById('register-username');
+            const registerPass = document.getElementById('register-password');
+
+            const loginBtn = document.getElementById('login-btn');
+            const registerBtn = document.getElementById('register-btn');
+
+            // --- Form Toggling ---
+            showRegisterLink.addEventListener('click', (e) => {
+                e.preventDefault();
+                setStatus('');
+                loginForm.classList.add('opacity-0', 'hidden');
+                registerForm.classList.remove('hidden');
+                setTimeout(() => registerForm.classList.remove('opacity-0'), 50);
+            });
+
+            showLoginLink.addEventListener('click', (e) => {
+                e.preventDefault();
+                setStatus('');
+                registerForm.classList.add('opacity-0', 'hidden');
+                loginForm.classList.remove('hidden');
+                setTimeout(() => loginForm.classList.remove('opacity-0'), 50);
+            });
+
+            function setStatus(message) {
+                statusEl.textContent = message;
+            }
+
+            function handleAuthSuccess(userData) {
+                // Store user info in sessionStorage to use on other pages
+                sessionStorage.setItem('user', JSON.stringify(userData));
+                // Redirect to the camera registration/launch page
+                window.location.href = '/register_camera.html';
+            }
+
+            // --- API Calls ---
+            loginBtn.addEventListener('click', () => {
+                const username = loginUser.value.trim();
+                const password = loginPass.value.trim();
+                if (!username || !password) {
+                    setStatus('Username and password are required.');
+                    return;
+                }
+                setStatus('Logging in...');
+                
+                fetch('/login', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ username, password })
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        setStatus('Login successful! Redirecting...');
+                        handleAuthSuccess(data);
+                    } else {
+                        setStatus(data.error || 'Login failed.');
+                    }
+                })
+                .catch(err => {
+                    console.error('Login error:', err);
+                    setStatus('An error occurred. Please try again.');
+                });
+            });
+
+            registerBtn.addEventListener('click', () => {
+                const username = registerUser.value.trim();
+                const password = registerPass.value.trim();
+                if (!username || !password) {
+                    setStatus('Username and password are required.');
+                    return;
+                }
+                setStatus('Creating account...');
+                
+                fetch('/register', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ username, password })
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        setStatus('Account created! Please log in.');
+                        // Switch to login form
+                        showLoginLink.click();
+                        loginUser.value = username; // Pre-fill username
+                        loginPass.focus();
+                    } else {
+                        setStatus(data.error || 'Registration failed.');
+                    }
+                })
+                .catch(err => {
+                    console.error('Registration error:', err);
+                    setStatus('An error occurred. Please try again.');
+                });
+            });
+        });
+    </script>
+</body>
+</html>

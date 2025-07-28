@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Assign Parking Zones</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="shortcut icon" href="/static/favicon.png" type="image/x-icon">
+    <style>
+        canvas {
+            display: block;
+            max-width: 100%;
+            height: auto;
+            cursor: pointer;
+        }
+        .zone-list-item.active {
+            background-color: #3b82f6;
+            color: white;
+            box-shadow: 0 0 0 2px #3b82f6;
+        }
+         .hidden {
+            display: none;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: scale(0.95); }
+            to { opacity: 1; transform: scale(1); }
+        }
+        .dropdown-menu {
+            animation: fadeIn 0.2s ease-out forwards;
+        }
+    </style>
+</head>
+<body class="bg-gray-900 text-gray-100 min-h-screen">
+    <div class="container mx-auto px-4 py-6">
+        <!-- Header -->
+        <header class="flex flex-col md:flex-row justify-between items-center mb-8">
+            <div class="flex items-center mb-4 md:mb-0">
+                <i class="fas fa-layer-group text-blue-500 text-3xl mr-3"></i>
+                <h1 class="text-2xl md:text-3xl font-bold bg-gradient-to-r from-blue-400 to-blue-600 bg-clip-text text-transparent pb-1">
+                    Assign Parking Zones
+                </h1>
+            </div>
+            <div class="flex items-center space-x-4">
+                 <div class="flex items-center bg-gray-800 px-4 py-2 rounded-lg">
+                    <i class="fas fa-clock text-blue-400 mr-2"></i>
+                    <span id="current-time" class="font-mono">00:00:00</span>
+                </div>
+                <!-- User Account Dropdown -->
+                <div class="relative">
+                    <button id="user-menu-button" class="w-10 h-10 bg-gray-700 rounded-full flex items-center justify-center text-lg font-semibold text-white focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-800 focus:ring-white">
+                        <span id="user-initial">?</span>
+                    </button>
+                    <div id="user-menu" class="dropdown-menu hidden absolute right-0 mt-2 w-56 origin-top-right bg-gray-800 rounded-md shadow-lg z-10">
+                        <div class="py-1">
+                            <div class="px-4 py-2 text-sm text-gray-300 border-b border-gray-700">
+                                <p class="font-semibold">Signed in as</p>
+                                <p id="user-name" class="truncate"></p>
+                            </div>
+                            <a href="/register_camera.html" id="manage-camera-btn" class="block px-4 py-2 text-sm text-gray-300 hover:bg-gray-700">Manage Cameras</a>
+                            <a href="#" id="change-account-btn" class="block px-4 py-2 text-sm text-gray-300 hover:bg-gray-700">Change Account</a>
+                            <a href="#" id="logout-btn" class="block px-4 py-2 text-sm text-gray-300 hover:bg-gray-700">Log Out</a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <main class="grid grid-cols-1 lg:grid-cols-4 gap-6">
+            <!-- Controls Panel -->
+            <div class="lg:col-span-1 bg-gray-800 rounded-xl shadow-xl p-6 flex flex-col">
+                <div>
+                    <h2 class="text-xl font-bold mb-4">Zone Management</h2>
+                    <div class="mb-4">
+                        <label for="zone-name-input" class="block text-sm font-medium text-gray-400 mb-2">New Zone Name</label>
+                        <div class="flex">
+                            <input type="text" id="zone-name-input" placeholder="e.g., Staff Parking" class="w-full bg-gray-700 border border-gray-600 rounded-l-lg px-3 py-2 text-sm">
+                            <button id="add-zone-btn" class="bg-green-600 hover:bg-green-700 px-4 rounded-r-lg flex items-center transition">
+                                <i class="fas fa-plus"></i>
+                            </button>
+                        </div>
+                    </div>
+                    <div id="zone-list" class="space-y-2 max-h-64 overflow-y-auto">
+                        <!-- Zone buttons will be added here -->
+                    </div>
+                </div>
+                <div class="mt-auto pt-6">
+                     <button id="save-zones-btn" class="w-full bg-blue-600 hover:bg-blue-700 py-3 rounded-lg flex items-center justify-center transition whitespace-nowrap">
+                        <i class="fas fa-save mr-2 flex-shrink-0"></i> 
+                        <span>Save All Zone Assignments</span>
+                    </button>
+                    <!-- NEW BUTTON ADDED -->
+                    <button id="back-to-stream-btn" class="w-full mt-2 bg-gray-600 hover:bg-gray-700 py-3 rounded-lg flex items-center justify-center transition">
+                        <i class="fas fa-arrow-left mr-2"></i> 
+                        <span>Back to Stream</span>
+                    </button>
+                    <p id="status" class="text-center text-gray-400 min-h-[24px] mt-4"></p>
+                </div>
+            </div>
+
+            <!-- Canvas -->
+            <div class="lg:col-span-3 bg-gray-800 rounded-xl shadow-xl p-6 text-center">
+                 <p id="canvas-status" class="text-gray-400 mb-4 text-lg">Select a zone, then click on parking spaces to assign them.</p>
+                <div class="bg-black inline-block rounded-lg overflow-hidden">
+                    <canvas id="canvas"></canvas>
+                </div>
+            </div>
+        </main>
+    </div>
+    
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const canvas = document.getElementById('canvas');
+            const ctx = canvas.getContext('2d');
+            const statusEl = document.getElementById('status');
+            const canvasStatusEl = document.getElementById('canvas-status');
+            const zoneNameInput = document.getElementById('zone-name-input');
+            const addZoneBtn = document.getElementById('add-zone-btn');
+            const zoneListEl = document.getElementById('zone-list');
+            const saveBtn = document.getElementById('save-zones-btn');
+            const backBtn = document.getElementById('back-to-stream-btn');
+            const currentTimeEl = document.getElementById('current-time');
+            const userMenuButton = document.getElementById('user-menu-button');
+            const userMenu = document.getElementById('user-menu');
+            const userInitial = document.getElementById('user-initial');
+            const userNameEl = document.getElementById('user-name');
+            const manageCamBtn = document.getElementById('manage-camera-btn');
+            const changeAccountBtn = document.getElementById('change-account-btn');
+            const logoutBtn = document.getElementById('logout-btn');
+
+            const urlParams = new URLSearchParams(window.location.search);
+            const camera_id = urlParams.get('camera_id');
+            const user = JSON.parse(sessionStorage.getItem('user'));
+
+            let image = new Image();
+            let parkingSpaces = [];
+            let zones = {};
+            let activeZone = null;
+            const defaultColor = '#9ca3af'; // Gray for unassigned
+            const colorPalette = ['#3b82f6', '#ef4444', '#f97316', '#8b5cf6', '#14b8a6', '#d946ef', '#22c55e'];
+
+            if (!user) { window.location.href = '/'; return; }
+            if (!camera_id) { statusEl.textContent = "Error: No camera ID found."; return; }
+
+            if(user && user.username) {
+                userInitial.textContent = user.username.charAt(0).toUpperCase();
+                userNameEl.textContent = user.username;
+            }
+
+            function updateTime() { currentTimeEl.textContent = new Date().toLocaleTimeString(); }
+            setInterval(updateTime, 1000);
+            updateTime();
+
+            function stopStream() { if(camera_id) navigator.sendBeacon('/stop_stream', JSON.stringify({ camera_id })); }
+
+            function logout() { stopStream(); sessionStorage.removeItem('user'); window.location.href = '/'; }
+            manageCamBtn.addEventListener('click', stopStream);
+            logoutBtn.addEventListener('click', logout);
+            changeAccountBtn.addEventListener('click', logout);
+
+            userMenuButton.addEventListener('click', (e) => { e.stopPropagation(); userMenu.classList.toggle('hidden'); });
+            window.addEventListener('click', () => { if (!userMenu.classList.contains('hidden')) userMenu.classList.add('hidden'); });
+
+            function redraw() {
+                if (!image.src) return;
+                ctx.drawImage(image, 0, 0);
+                parkingSpaces.forEach((space, index) => {
+                    const zoneName = space.zone;
+                    const color = zones[zoneName] || defaultColor;
+                    ctx.strokeStyle = color;
+                    ctx.fillStyle = color + '33'; // Add transparency for fill
+                    ctx.lineWidth = 2;
+                    ctx.beginPath();
+                    ctx.moveTo(space.points[0][0], space.points[0][1]);
+                    for (let i = 1; i < space.points.length; i++) ctx.lineTo(space.points[i][0], space.points[i][1]);
+                    ctx.closePath();
+                    ctx.stroke();
+                    ctx.fill();
+                    const centerX = space.points.reduce((sum, p) => sum + p[0], 0) / 4;
+                    const centerY = space.points.reduce((sum, p) => sum + p[1], 0) / 4;
+                    ctx.fillStyle = '#ffffff';
+                    ctx.font = 'bold 16px Arial';
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'middle';
+                    ctx.fillText(index + 1, centerX, centerY);
+                });
+            }
+
+            function renderZoneList() {
+                zoneListEl.innerHTML = '';
+                for (const zoneName in zones) {
+                    const color = zones[zoneName];
+                    const button = document.createElement('button');
+                    button.className = `w-full flex items-center justify-between p-2 rounded-lg text-left transition zone-list-item ${activeZone === zoneName ? 'active' : 'bg-gray-700 hover:bg-gray-600'}`;
+                    button.innerHTML = `
+                        <div class="flex items-center">
+                            <div class="w-4 h-4 rounded-full mr-3" style="background-color: ${color};"></div>
+                            <span>${zoneName}</span>
+                        </div>
+                        <button class="delete-zone-btn text-gray-400 hover:text-white">&times;</button>
+                    `;
+                    button.addEventListener('click', () => { activeZone = zoneName; renderZoneList(); });
+                    button.querySelector('.delete-zone-btn').addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        if (confirm(`Are you sure you want to delete "${zoneName}"? This will unassign all its spaces.`)) {
+                            parkingSpaces.forEach(space => { if (space.zone === zoneName) space.zone = null; });
+                            delete zones[zoneName];
+                            if (activeZone === zoneName) activeZone = null;
+                            renderZoneList();
+                            redraw();
+                        }
+                    });
+                    zoneListEl.appendChild(button);
+                }
+            }
+
+            addZoneBtn.addEventListener('click', () => {
+                const zoneName = zoneNameInput.value.trim();
+                if (zoneName && !zones[zoneName]) {
+                    const colorIndex = Object.keys(zones).length % colorPalette.length;
+                    zones[zoneName] = colorPalette[colorIndex];
+                    zoneNameInput.value = '';
+                    activeZone = zoneName;
+                    renderZoneList();
+                }
+            });
+
+            canvas.addEventListener('click', (e) => {
+                if (!activeZone) {
+                    canvasStatusEl.textContent = "Please select a zone from the list first!";
+                    return;
+                }
+                const rect = canvas.getBoundingClientRect();
+                const scaleX = canvas.width / rect.width;
+                const scaleY = canvas.height / rect.height;
+                const x = (e.clientX - rect.left) * scaleX;
+                const y = (e.clientY - rect.top) * scaleY;
+                for (let i = 0; i < parkingSpaces.length; i++) {
+                    const space = parkingSpaces[i];
+                    ctx.beginPath();
+                    ctx.moveTo(space.points[0][0], space.points[0][1]);
+                    for (let j = 1; j < space.points.length; j++) ctx.lineTo(space.points[j][0], space.points[j][1]);
+                    ctx.closePath();
+                    if (ctx.isPointInPath(x, y)) {
+                        space.zone = space.zone === activeZone ? null : activeZone;
+                        redraw();
+                        break;
+                    }
+                }
+            });
+
+            saveBtn.addEventListener('click', () => {
+                statusEl.textContent = 'Saving...';
+                fetch(`/save_bounding_boxes/${camera_id}`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({boxes: parkingSpaces, user_id: user.user_id})
+                })
+                .then(response => response.json())
+                .then(result => {
+                    if (result.success) {
+                        statusEl.textContent = 'Zones saved successfully!';
+                        setTimeout(() => statusEl.textContent = '', 2000);
+                    } else {
+                        statusEl.textContent = 'Failed to save zones.';
+                    }
+                })
+                .catch(err => {
+                    console.error('Save error:', err);
+                    statusEl.textContent = 'Error connecting to server.';
+                });
+            });
+
+            // --- Initial Load ---
+            fetch(`/capture_frame/${camera_id}?user_id=${user.user_id}`)
+                .then(response => {
+                    if (!response.ok) throw new Error('Failed to fetch frame. Check permissions.');
+                    return response.blob();
+                })
+                .then(blob => {
+                    image.src = URL.createObjectURL(blob);
+                    image.onload = () => {
+                        canvas.width = image.width;
+                        canvas.height = image.height;
+                        fetch(`/get_bounding_boxes/${camera_id}?user_id=${user.user_id}`)
+                            .then(res => res.json())
+                            .then(data => {
+                                parkingSpaces = data.bounding_boxes || [];
+                                let colorIndex = 0;
+                                parkingSpaces.forEach(space => {
+                                    if (space.zone && !zones[space.zone]) {
+                                        zones[space.zone] = colorPalette[colorIndex % colorPalette.length];
+                                        colorIndex++;
+                                    }
+                                });
+                                redraw();
+                                renderZoneList();
+                            });
+                    };
+                })
+                .catch(err => {
+                    console.error('Error loading frame:', err);
+                    canvasStatusEl.textContent = err.message;
+                });
+
+            backBtn.addEventListener('click', () => {
+                window.location.href = `/stream.html?camera_id=${camera_id}`;
+            });
+        });
+    </script>
+</body>
+</html>

@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Edit Parking Zones</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="shortcut icon" href="/static/favicon.png" type="image/x-icon">
+    <style>
+        .canvas-container {
+            border: 1px solid #4b5563;
+            border-radius: 0.75rem;
+            overflow: hidden;
+            background-color: #000;
+        }
+        canvas {
+            display: block;
+            max-width: 100%;
+            height: auto;
+            cursor: crosshair;
+        }
+        .hidden {
+            display: none;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: scale(0.95); }
+            to { opacity: 1; transform: scale(1); }
+        }
+        .dropdown-menu {
+            animation: fadeIn 0.2s ease-out forwards;
+        }
+    </style>
+</head>
+<body class="bg-gray-900 text-gray-100 min-h-screen">
+    <div class="container mx-auto px-4 py-6">
+        <!-- Header -->
+        <header class="flex flex-col md:flex-row justify-between items-center mb-8">
+            <div class="flex items-center mb-4 md:mb-0">
+                <i class="fas fa-draw-polygon text-blue-500 text-3xl mr-3"></i>
+                <h1 class="text-2xl md:text-3xl font-bold bg-gradient-to-r from-blue-400 to-blue-600 bg-clip-text text-transparent pb-1">
+                    Edit Parking Spaces
+                </h1>
+            </div>
+            <div class="flex items-center space-x-4">
+                <div class="flex items-center bg-gray-800 px-4 py-2 rounded-lg">
+                    <i class="fas fa-clock text-blue-400 mr-2"></i>
+                    <span id="current-time" class="font-mono">00:00:00</span>
+                </div>
+                <!-- User Account Dropdown -->
+                <div class="relative">
+                    <button id="user-menu-button" class="w-10 h-10 bg-gray-700 rounded-full flex items-center justify-center text-lg font-semibold text-white focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-800 focus:ring-white">
+                        <span id="user-initial">?</span>
+                    </button>
+                    <div id="user-menu" class="dropdown-menu hidden absolute right-0 mt-2 w-56 origin-top-right bg-gray-800 rounded-md shadow-lg z-10">
+                        <div class="py-1">
+                            <div class="px-4 py-2 text-sm text-gray-300 border-b border-gray-700">
+                                <p class="font-semibold">Signed in as</p>
+                                <p id="user-name" class="truncate"></p>
+                            </div>
+                            <a href="/register_camera.html" id="manage-camera-btn" class="block px-4 py-2 text-sm text-gray-300 hover:bg-gray-700">Manage Cameras</a>
+                            <a href="#" id="change-account-btn" class="block px-4 py-2 text-sm text-gray-300 hover:bg-gray-700">Change Account</a>
+                            <a href="#" id="logout-btn" class="block px-4 py-2 text-sm text-gray-300 hover:bg-gray-700">Log Out</a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <main class="text-center">
+             <div class="bg-gray-800 rounded-xl shadow-xl p-8 w-full max-w-4xl mx-auto">
+                <p id="status" class="text-gray-400 mb-4 text-lg">Loading camera frame...</p>
+                <div class="canvas-container inline-block">
+                    <canvas id="canvas"></canvas>
+                </div>
+                <div class="mt-6 flex justify-center items-center gap-4 flex-wrap">
+                    <button id="undo-btn" class="bg-gray-600 hover:bg-gray-700 px-5 py-2 rounded-lg flex items-center transition">
+                        <i class="fas fa-undo mr-2"></i> Undo Point
+                    </button>
+                    <button id="clear-btn" class="bg-red-600 hover:bg-red-700 px-5 py-2 rounded-lg flex items-center transition">
+                        <i class="fas fa-trash mr-2"></i> Clear All
+                    </button>
+                    <button id="save-btn" class="bg-green-600 hover:bg-green-700 px-5 py-2 rounded-lg flex items-center transition">
+                        <i class="fas fa-save mr-2"></i> Save & Finish
+                    </button>
+                </div>
+            </div>
+        </main>
+
+        <!-- Footer -->
+        <footer class="mt-8 text-center text-gray-500 text-sm">
+            <p>Smart Parking Monitoring System • v1.0.0</p>
+        </footer>
+    </div>
+    
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            // --- Element References ---
+            const canvas = document.getElementById('canvas');
+            const ctx = canvas.getContext('2d');
+            const statusEl = document.getElementById('status');
+            const saveBtn = document.getElementById('save-btn');
+            const undoBtn = document.getElementById('undo-btn');
+            const clearBtn = document.getElementById('clear-btn');
+            const currentTimeEl = document.getElementById('current-time');
+            const userMenuButton = document.getElementById('user-menu-button');
+            const userMenu = document.getElementById('user-menu');
+            const userInitial = document.getElementById('user-initial');
+            const userNameEl = document.getElementById('user-name');
+            const manageCamBtn = document.getElementById('manage-camera-btn');
+            const changeAccountBtn = document.getElementById('change-account-btn');
+            const logoutBtn = document.getElementById('logout-btn');
+
+            // --- Initial State & Auth ---
+            const urlParams = new URLSearchParams(window.location.search);
+            const camera_id = urlParams.get('camera_id');
+            const user = JSON.parse(sessionStorage.getItem('user'));
+            let image = new Image();
+            let currentPolygon = [];
+            let parkingSpaces = []; // FIX: This will now be an array of objects
+
+            if (!user) {
+                window.location.href = '/';
+                return;
+            }
+            if (!camera_id) {
+                statusEl.textContent = 'Error: No Camera ID provided in URL.';
+                return;
+            }
+
+            // --- UI Functions ---
+            if(user && user.username) {
+                userInitial.textContent = user.username.charAt(0).toUpperCase();
+                userNameEl.textContent = user.username;
+            }
+
+            function updateTime() {
+                currentTimeEl.textContent = new Date().toLocaleTimeString();
+            }
+            setInterval(updateTime, 1000);
+            updateTime();
+
+            function stopStream() {
+                if (camera_id) {
+                    navigator.sendBeacon('/stop_stream', JSON.stringify({ camera_id }));
+                }
+            }
+
+            function logout() {
+                stopStream();
+                sessionStorage.removeItem('user');
+                window.location.href = '/';
+            }
+
+            userMenuButton.addEventListener('click', (event) => {
+                event.stopPropagation();
+                userMenu.classList.toggle('hidden');
+            });
+            window.addEventListener('click', () => {
+                if (!userMenu.classList.contains('hidden')) userMenu.classList.add('hidden');
+            });
+            
+            manageCamBtn.addEventListener('click', stopStream);
+            logoutBtn.addEventListener('click', logout);
+            changeAccountBtn.addEventListener('click', logout);
+
+            function updateStatus() {
+                if (currentPolygon.length > 0) {
+                    statusEl.textContent = `Drawing space... ${currentPolygon.length}/4 points placed.`;
+                } else {
+                    statusEl.textContent = `Spaces drawn: ${parkingSpaces.length}. Right-click to undo a full space.`;
+                }
+            }
+
+            // --- Canvas and Data Logic ---
+            fetch(`/capture_frame/${camera_id}?user_id=${user.user_id}`)
+                .then(response => {
+                    if (!response.ok) throw new Error('Failed to fetch frame. Check permissions.');
+                    return response.blob();
+                })
+                .then(blob => {
+                    image.src = URL.createObjectURL(blob);
+                    image.onload = () => {
+                        canvas.width = image.width;
+                        canvas.height = image.height;
+                        fetch(`/get_bounding_boxes/${camera_id}?user_id=${user.user_id}`)
+                            .then(res => res.json())
+                            .then(data => {
+                                parkingSpaces = data.bounding_boxes || [];
+                                redraw();
+                                updateStatus();
+                            });
+                    };
+                })
+                .catch(err => {
+                    console.error('Error loading frame:', err);
+                    statusEl.textContent = err.message;
+                });
+
+            function redraw() {
+                ctx.drawImage(image, 0, 0);
+                ctx.strokeStyle = '#22c55e';
+                ctx.lineWidth = 2;
+                // FIX: Access the .points property of each space object
+                parkingSpaces.forEach(space => {
+                    const points = space.points;
+                    ctx.beginPath();
+                    ctx.moveTo(points[0][0], points[0][1]);
+                    for (let i = 1; i < points.length; i++) ctx.lineTo(points[i][0], points[i][1]);
+                    ctx.closePath();
+                    ctx.stroke();
+                });
+                ctx.strokeStyle = '#3b82f6';
+                ctx.beginPath();
+                currentPolygon.forEach(([x, y], i) => (i === 0) ? ctx.moveTo(x, y) : ctx.lineTo(x, y));
+                ctx.stroke();
+                ctx.fillStyle = '#ef4444';
+                // FIX: Combine the current polygon with the points from the existing spaces
+                const allPoints = [...parkingSpaces.map(s => s.points), currentPolygon];
+                allPoints.forEach(poly => {
+                    poly.forEach(([x, y]) => {
+                        ctx.beginPath();
+                        ctx.arc(x, y, 5, 0, 2 * Math.PI);
+                        ctx.fill();
+                    });
+                });
+            }
+
+            canvas.addEventListener('click', (e) => {
+                const rect = canvas.getBoundingClientRect();
+                const scaleX = canvas.width / rect.width;
+                const scaleY = canvas.height / rect.height;
+                const x = (e.clientX - rect.left) * scaleX;
+                const y = (e.clientY - rect.top) * scaleY;
+                currentPolygon.push([x, y]);
+                if (currentPolygon.length === 4) {
+                    // FIX: Push a new object, not just the points
+                    parkingSpaces.push({ points: currentPolygon, zone: null });
+                    currentPolygon = [];
+                }
+                redraw();
+                updateStatus();
+            });
+
+            canvas.addEventListener('contextmenu', (e) => {
+                e.preventDefault();
+                if (currentPolygon.length > 0) currentPolygon = [];
+                else if (parkingSpaces.length > 0) parkingSpaces.pop();
+                redraw();
+                updateStatus();
+            });
+
+            undoBtn.addEventListener('click', () => {
+                if (currentPolygon.length > 0) {
+                    currentPolygon.pop();
+                } else if (parkingSpaces.length > 0) {
+                    const lastSpace = parkingSpaces.pop();
+                    currentPolygon = lastSpace.points; // Get the points back
+                    currentPolygon.pop(); // Remove the last point
+                }
+                redraw();
+                updateStatus();
+            });
+            
+            clearBtn.addEventListener('click', () => {
+                if (confirm('Are you sure you want to clear all spaces?')) {
+                    parkingSpaces = [];
+                    currentPolygon = [];
+                    redraw();
+                    updateStatus();
+                }
+            });
+
+            saveBtn.addEventListener('click', () => {
+                statusEl.textContent = 'Saving...';
+                fetch(`/save_bounding_boxes/${camera_id}`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    // FIX: Send the array of objects, which is now the correct format
+                    body: JSON.stringify({boxes: parkingSpaces, user_id: user.user_id})
+                })
+                .then(response => response.json())
+                .then(result => {
+                    if (result.success) {
+                        statusEl.textContent = 'Saved successfully! Redirecting to dashboard...';
+                        setTimeout(() => {
+                           window.location.href = `/stream.html?camera_id=${camera_id}`;
+                        }, 1500);
+                    } else {
+                        statusEl.textContent = 'Failed to save spaces. Please try again.';
+                    }
+                })
+                .catch(err => {
+                    console.error('Save error:', err);
+                    statusEl.textContent = 'Error connecting to server.';
+                });
+            });
+        });
+    </script>
+</body>
+</html>

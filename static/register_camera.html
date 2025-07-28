@@ -1,0 +1,256 @@
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Register Camera</title>
+        <script src="https://cdn.tailwindcss.com"></script>
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+        <link rel="shortcut icon" href="/static/favicon.png" type="image/x-icon">
+        <style>
+            .hidden {
+                display: none;
+            }
+            @keyframes fadeIn {
+                from { opacity: 0; transform: scale(0.95); }
+                to { opacity: 1; transform: scale(1); }
+            }
+            .modal-content, .dropdown-menu {
+                animation: fadeIn 0.2s ease-out forwards;
+            }
+        </style>
+    </head>
+    <body class="bg-gray-900 text-gray-100 min-h-screen">
+        <div class="container mx-auto px-4 py-6">
+            <!-- Header -->
+            <header class="flex flex-col md:flex-row justify-between items-center mb-8">
+                <div class="flex items-center mb-4 md:mb-0">
+                    <i class="fas fa-car text-blue-500 text-3xl mr-3"></i>
+                    <h1 class="text-2xl md:text-3xl font-bold bg-gradient-to-r from-blue-400 to-blue-600 bg-clip-text text-transparent pb-1">
+                        Smart Parking Monitor
+                    </h1>
+                </div>
+                <div class="flex items-center space-x-4">
+                    <div class="flex items-center bg-gray-800 px-4 py-2 rounded-lg">
+                        <i class="fas fa-clock text-blue-400 mr-2"></i>
+                        <span id="current-time" class="font-mono">00:00:00</span>
+                    </div>
+                    <!-- User Account Dropdown -->
+                    <div class="relative">
+                        <button id="user-menu-button" class="w-10 h-10 bg-gray-700 rounded-full flex items-center justify-center text-lg font-semibold text-white focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-800 focus:ring-white">
+                            <span id="user-initial">?</span>
+                        </button>
+                        <div id="user-menu" class="dropdown-menu hidden absolute right-0 mt-2 w-56 origin-top-right bg-gray-800 rounded-md shadow-lg z-10">
+                            <div class="py-1">
+                                <div class="px-4 py-2 text-sm text-gray-300 border-b border-gray-700">
+                                    <p class="font-semibold">Signed in as</p>
+                                    <p id="user-name" class="truncate"></p>
+                                </div>
+                                <a href="#" id="change-account-btn" class="block px-4 py-2 text-sm text-gray-300 hover:bg-gray-700">Change Account</a>
+                                <a href="#" id="logout-btn" class="block px-4 py-2 text-sm text-gray-300 hover:bg-gray-700">Log Out</a>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </header>
+
+            <!-- Main Content -->
+            <main class="flex justify-center">
+                <div class="bg-gray-800 rounded-xl shadow-xl p-8 w-full max-w-lg">
+                    <!-- Register New Camera Section -->
+                    <div>
+                        <h2 class="text-2xl font-bold text-center mb-4">Register New Camera</h2>
+                        <label for="camera-name" class="block text-sm font-medium text-gray-400 mb-2">Camera Name</label>
+                        <input type="text" id="camera-name" placeholder="e.g., Front Entrance" autocomplete="off" class="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-sm mb-4">
+                        <label for="rtsp-url" class="block text-sm font-medium text-gray-400 mb-2">Stream URL</label>
+                        <input type="text" id="rtsp-url" placeholder="rtsp://, http://, etc." autocomplete="off" class="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-sm mb-4">
+                        <button id="register-btn" class="w-full bg-green-600 hover:bg-green-700 py-3 rounded-lg flex items-center justify-center transition">
+                            <i class="fas fa-plus-circle mr-2"></i> Register Camera
+                        </button>
+                    </div>
+
+                    <!-- Separator -->
+                    <div class="flex items-center text-center text-gray-500 my-6">
+                        <hr class="flex-1 border-gray-700">
+                        <span class="px-4">OR</span>
+                        <hr class="flex-1 border-gray-700">
+                    </div>
+
+                    <!-- Launch Existing Camera Section -->
+                    <div>
+                        <h2 class="text-2xl font-bold text-center mb-4">Launch Existing Camera</h2>
+                        <label for="camera-id" class="block text-sm font-medium text-gray-400 mb-2">Existing Camera ID</label>
+                        <input type="text" id="camera-id" placeholder="Enter existing camera ID" autocomplete="off" class="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-sm mb-4">
+                        <button id="launch-btn" class="w-full bg-blue-600 hover:bg-blue-700 py-3 rounded-lg flex items-center justify-center transition">
+                            <i class="fas fa-play-circle mr-2"></i> Launch Stream
+                        </button>
+                    </div>
+                    <p id="status" class="text-center text-gray-400 min-h-[24px] mt-6"></p>
+                </div>
+            </main>
+
+            <!-- Footer -->
+            <footer class="mt-8 text-center text-gray-500 text-sm">
+                <p>Smart Parking Monitoring System • v1.0.0</p>
+            </footer>
+        </div>
+
+        <!-- Modal for copying the Camera ID -->
+        <div id="copy-modal" class="hidden fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50">
+            <div class="modal-content bg-gray-800 rounded-xl shadow-xl p-8 w-full max-w-md text-center">
+                <h3 class="text-xl font-bold mb-2">Registration Successful!</h3>
+                <p class="text-gray-400 mb-4">Here is your new Camera ID. Please save it for future use.</p>
+                <div class="flex mb-4">
+                    <input type="text" id="new-camera-id" readonly class="w-full bg-gray-700 border border-gray-600 rounded-l-lg px-3 py-2 text-sm text-center">
+                    <button id="copy-btn" class="bg-gray-600 hover:bg-gray-500 px-4 py-2 rounded-r-lg flex items-center transition">
+                        <i class="fas fa-copy mr-2"></i> Copy
+                    </button>
+                </div>
+                <button id="continue-btn" class="w-full bg-blue-600 hover:bg-blue-700 py-3 rounded-lg flex items-center justify-center transition">
+                    Continue to Draw Zones
+                </button>
+            </div>
+        </div>
+        
+        <script>
+            document.addEventListener('DOMContentLoaded', () => {
+                const registerBtn = document.getElementById('register-btn');
+                const launchBtn = document.getElementById('launch-btn');
+                const nameInput = document.getElementById('camera-name');
+                const urlInput = document.getElementById('rtsp-url');
+                const idInput = document.getElementById('camera-id');
+                const statusEl = document.getElementById('status');
+                const currentTimeEl = document.getElementById('current-time');
+
+                // User Menu Elements
+                const userMenuButton = document.getElementById('user-menu-button');
+                const userMenu = document.getElementById('user-menu');
+                const userInitial = document.getElementById('user-initial');
+                const userNameEl = document.getElementById('user-name');
+                const changeAccountBtn = document.getElementById('change-account-btn');
+                const logoutBtn = document.getElementById('logout-btn');
+
+                // Modal elements
+                const copyModal = document.getElementById('copy-modal');
+                const newCameraIdInput = document.getElementById('new-camera-id');
+                const copyBtn = document.getElementById('copy-btn');
+                const continueBtn = document.getElementById('continue-btn');
+                let newCameraId = '';
+
+                // --- Get user info from sessionStorage ---
+                const user = JSON.parse(sessionStorage.getItem('user'));
+                if (!user) {
+                    window.location.href = '/'; // Redirect to login if not logged in
+                    return;
+                }
+
+                // --- Populate User Menu ---
+                if(user && user.username) {
+                    userInitial.textContent = user.username.charAt(0).toUpperCase();
+                    userNameEl.textContent = user.username;
+                }
+
+                userMenuButton.addEventListener('click', (event) => {
+                    event.stopPropagation(); // Prevents the window click listener from firing immediately
+                    userMenu.classList.toggle('hidden');
+                });
+
+                // *** NEW: Close dropdown when clicking outside ***
+                window.addEventListener('click', (event) => {
+                    if (!userMenu.classList.contains('hidden') && !userMenuButton.contains(event.target)) {
+                        userMenu.classList.add('hidden');
+                    }
+                });
+
+                function logout() {
+                    sessionStorage.removeItem('user');
+                    // *** FIX: Changed '/' to a valid relative filename '/auth.html' ***
+                    window.location.href = '/';
+                }
+
+                logoutBtn.addEventListener('click', logout);
+                changeAccountBtn.addEventListener('click', logout);
+
+
+                function updateTime() {
+                    currentTimeEl.textContent = new Date().toLocaleTimeString();
+                }
+                setInterval(updateTime, 1000);
+                updateTime();
+
+                function setStatus(message, isError = false) {
+                    statusEl.textContent = message;
+                    statusEl.classList.toggle('text-red-400', isError);
+                    statusEl.classList.toggle('text-gray-400', !isError);
+                }
+
+                registerBtn.addEventListener('click', () => {
+                    const cameraName = nameInput.value.trim();
+                    const streamUrl = urlInput.value.trim();
+                    
+                    if (!cameraName) {
+                        setStatus('Please enter a name for the camera.', true);
+                        return;
+                    }
+
+                    const urlRegex = /^[a-zA-Z]+:\/\//;
+                    if (!urlRegex.test(streamUrl)) {
+                        setStatus('Invalid format. URL must be a valid link (e.g., http://, rtsp://).', true);
+                        return;
+                    }
+                    
+                    setStatus('Registering...');
+                    fetch('/register_camera', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({ 
+                            user_id: user.user_id, 
+                            camera_name: cameraName, 
+                            stream_url: streamUrl 
+                        })
+                    })
+                    .then(response => response.json())
+                    .then(result => {
+                        if (result.success && result.camera_id) {
+                            setStatus('');
+                            newCameraId = result.camera_id;
+                            newCameraIdInput.value = newCameraId;
+                            copyModal.classList.remove('hidden');
+                        } else {
+                            setStatus(result.error || 'Failed to register camera. Please try again.', true);
+                        }
+                    })
+                    .catch(err => {
+                        console.error('Registration error:', err);
+                        setStatus('An error occurred. Please check the server connection.', true);
+                    });
+                });
+
+                launchBtn.addEventListener('click', () => {
+                    const cameraId = idInput.value.trim();
+                    if (!cameraId) {
+                        setStatus('Please enter an existing Camera ID.', true);
+                        return;
+                    }
+                    setStatus('Launching stream...');
+                    window.location.href = `/stream.html?camera_id=${cameraId}`;
+                });
+
+                copyBtn.addEventListener('click', () => {
+                    newCameraIdInput.select();
+                    document.execCommand('copy');
+                    copyBtn.innerHTML = '<i class="fas fa-check mr-2"></i> Copied!';
+                    setTimeout(() => {
+                        copyBtn.innerHTML = '<i class="fas fa-copy mr-2"></i> Copy';
+                    }, 2000);
+                });
+
+                continueBtn.addEventListener('click', () => {
+                    copyModal.classList.add('hidden');
+                    setStatus('Redirecting...');
+                    window.location.href = `/picker.html?camera_id=${newCameraId}`;
+                });
+            });
+        </script>
+    </body>
+    </html>
