@@ -58,6 +58,18 @@ def createDB_and_tables():
             )
         """)
 
+        # Create camera settings table
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS camera_settings (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                camera_id VARCHAR(36) UNIQUE,
+                detection_threshold FLOAT DEFAULT 0.35,
+                iou_threshold FLOAT DEFAULT 0.3,
+                use_intersection_only BOOLEAN DEFAULT FALSE,
+                FOREIGN KEY (camera_id) REFERENCES cameras (id)
+            )
+        """)
+
         # Create Bounding Boxes table
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS bounding_boxes (
@@ -339,6 +351,67 @@ def get_boxes(camera_id: str, user_id: int):
         reconstructed_boxes = [{"points": json.loads(row['points']), "zone": row['zone_name']} for row in results]
         return JSONResponse(content={'bounding_boxes': reconstructed_boxes})
     
+    except mysql.connector.Error as err:
+        return JSONResponse(status_code=500, content={'error': f'Database error: {err}'})
+    
+@app.post('/save_settings/{camera_id}')
+async def save_settings(camera_id: str, request: Request):
+    data = await request.json()
+    user_id = data.get('user_id')
+
+    if not user_id and not verify_camera_ownership(camera_id, user_id):
+        return JSONResponse(status_code=403, content={'error': 'Permission denied.'})
+    
+    detection_threshold = data.get('detection_threshold')
+    iou_threshold = data.get('iou_threshold')
+    use_intersection_only = data.get('use_intersection_only')
+
+    try:
+        conn = mysql.connector.connect(**DB_CONFIG)
+        cursor = conn.cursor()
+        query = """
+            INSERT INTO camera_settings (camera_id, detection_threshold, iou_threshold, use_intersection_only) 
+            VALUES (%s, %s, %s, %s)
+            ON DUPLICATE KEY UPDATE 
+                detection_threshold = VALUES(detection_threshold), 
+                iou_threshold = VALUES(iou_threshold), 
+                use_intersection_only = VALUES(use_intersection_only)
+        """
+        cursor.execute(query, (camera_id, detection_threshold, iou_threshold, use_intersection_only))
+        conn.commit()
+        cursor.close()
+        conn.close()
+
+        if camera_id in video_detectors:
+            video_detectors[camera_id].reload_configuration()
+        
+        return JSONResponse(content={'success': True})
+    
+    except mysql.connector.Error as err:
+        return JSONResponse(status_code=500, content={'success': False, 'error': f'Database error: {err}'})
+    
+@app.get('/get_settings/{camera_id}')
+def get_settings(camera_id: str, user_id: int):
+    if not verify_camera_ownership(camera_id, user_id):
+        return JSONResponse(status_code=403, content={'error': 'Permission denied.'})
+    
+    try:
+        conn = mysql.connector.connect(**DB_CONFIG)
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute("SELECT * FROM camera_settings WHERE camera_id = %s", (camera_id,))
+        settings = cursor.fetchone()
+        cursor.close()
+        conn.close()
+
+        if settings:
+            return JSONResponse(content=settings)
+        else:
+            return JSONResponse(content={
+                'detection_threshold': 0.35,
+                'iou_threshold': 0.3,
+                'use_intersection_only': False
+            })
+        
     except mysql.connector.Error as err:
         return JSONResponse(status_code=500, content={'error': f'Database error: {err}'})
 

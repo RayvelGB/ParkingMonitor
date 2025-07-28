@@ -85,6 +85,44 @@
                         </div>
                     </div>
                 </div>
+
+                <div class="relative">
+                    <button id="settings-menu-button" class="w-10 h-10 bg-gray-700 rounded-full flex items-center justify-center text-lg text-white focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-800 focus:ring-white">
+                        <i class="fas fa-cog"></i>
+                    </button>
+                    <div id="settings-menu" class="dropdown-menu hidden absolute right-0 mt-2 w-72 origin-top-right bg-gray-800 rounded-md shadow-lg z-10 p-4">
+                        <h3 class="text-lg font-semibold mb-4">Detection Settings</h3>
+                        
+                        <!-- Detection Threshold -->
+                        <div class="mb-4">
+                            <label for="detection-slider" class="flex justify-between text-sm font-medium text-gray-300">
+                                <span>Detection Threshold</span>
+                                <span id="detection-value">0.35</span>
+                            </label>
+                            <input id="detection-slider" type="range" min="0.1" max="0.9" step="0.05" value="0.35" class="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer">
+                        </div>
+
+                        <!-- IOU Threshold -->
+                        <div id="iou-container" class="mb-4 transition-opaciy duration-300">
+                            <label for="iou-slider" class="flex justify-between text-sm font-medium text-gray-300">
+                                <span>IOU Threshold</span>
+                                <span id="iou-value">0.30</span>
+                            </label>
+                            <input id="iou-slider" type="range" min="0.1" max="0.9" step="0.05" value="0.3" class="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer">
+                        </div>
+
+                        <!-- Intersection Only Checkbox -->
+                        <div class="flex items-center mb-4">
+                            <input id="intersection-checkbox" type="checkbox" class="w-4 h-4 text-blue-600 bg-gray-700 border-gray-600 rounded focus:ring-blue-500">
+                            <label for="intersection-checkbox" class="ml-2 text-sm font-medium text-gray-300">Use Intersection Only</label>
+                        </div>
+
+                        <button id="save-settings-btn" class="w-full bg-blue-600 hover:bg-blue-700 py-2 rounded-lg flex items-center justify-center transition">
+                            Save Settings
+                        </button>
+                        <p id="settings-status" class="text-xs text-green-400 mt-2 h-4"></p>
+                    </div>
+                </div>
             </div>
         </header>
         
@@ -232,6 +270,17 @@
             const manageCamBtn = document.getElementById('manage-camera-btn');
             const changeAccountBtn = document.getElementById('change-account-btn');
             const logoutBtn = document.getElementById('logout-btn');
+
+            const settingsMenuButton = document.getElementById('settings-menu-button');
+            const settingsMenu = document.getElementById('settings-menu');
+            const detectionSlider = document.getElementById('detection-slider');
+            const detectionValue = document.getElementById('detection-value');
+            const iouSlider = document.getElementById('iou-slider');
+            const iouValue = document.getElementById('iou-value');
+            const iouContainer = document.getElementById('iou-container');
+            const intersectionCheckbox = document.getElementById('intersection-checkbox');
+            const saveSettingsBtn = document.getElementById('save-settings-btn');
+            const settingsStatus = document.getElementById('settings-status');
 
             // --- Initial State & Auth ---
             const urlParams = new URLSearchParams(window.location.search);
@@ -382,6 +431,75 @@
                     .catch(err => console.error('Error fetching logs:', err));
             }
 
+            settingsMenuButton.addEventListener('click', (event) => {
+                event.stopPropagation();
+                settingsMenu.classList.toggle('hidden');
+            });
+
+            window.addEventListener('click', (event) => {
+                if (!settingsMenu.classList.contains('hidden') && !settingsMenuButton.contains(event.target) && !settingsMenu.contains(event.target)) {
+                    settingsMenu.classList.add('hidden');
+                }
+            });
+
+            detectionSlider.addEventListener('input', () => {
+                detectionValue.textContent = parseFloat(detectionSlider.value).toFixed(2);
+            });
+
+            iouSlider.addEventListener('input', () => {
+                iouValue.textContent = parseFloat(iouSlider.value).toFixed(2);
+            });
+
+            function toggleIouSlider() {
+                if (intersectionCheckbox.checked) {
+                    iouContainer.classList.add('opacity-50');
+                    iouSlider.disabled = true;
+                } else {
+                    iouContainer.classList.remove('opacity-50');
+                    iouSlider.disabled = false;
+                }
+            }
+
+            intersectionCheckbox.addEventListener('change', toggleIouSlider);
+
+            function loadSettings() {
+                if (!camera_id) return;
+                fetch(`/get_settings/${camera_id}?user_id=${user.user_id}`)
+                    .then(res => res.json())
+                    .then(settings => {
+                        detectionSlider.value = settings.detection_threshold;
+                        detectionValue.textContent = parseFloat(settings.detection_threshold).toFixed(2);
+                        iouSlider.value = settings.iou_threshold;
+                        iouValue.textContent = parseFloat(settings.iou_threshold).toFixed(2);
+                        intersectionCheckbox.checked = settings.use_intersection_only;
+                        toggleIouSlider();
+                    });
+            }
+
+            saveSettingsBtn.addEventListener('click', () => {
+                settingsStatus.textContent = 'Saving...';
+                const settings = {
+                    user_id: user.user_id,
+                    detection_threshold: parseFloat(detectionSlider.value),
+                    iou_threshold: parseFloat(iouSlider.value),
+                    use_intersection_only: intersectionCheckbox.checked
+                };
+                fetch(`/save_settings/${camera_id}`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(settings)
+                })
+                .then(res => res.json())
+                .then(data => {
+                    if(data.success) {
+                        settingsStatus.textContent = 'Settings saved successfully!';
+                    } else {
+                        settingsStatus.textContent = 'Error saving settings.';
+                    }
+                    setTimeout(() => settingsStatus.textContent = '', 2000);
+                });
+            });
+
             // --- Main Execution ---
             if (!camera_id) {
                 loader.innerHTML = '<div class="text-center"><i class="fas fa-video-slash text-gray-500 text-5xl mb-4"></i><p class="text-gray-400">Select a camera to begin.</p></div>';
@@ -389,8 +507,10 @@
                 return;
             }
             
+            
             cameraIdDisplayEl.textContent = camera_id;
             populateCameraSelector();
+            loadSettings();
 
             fetch('/start_stream', {
                 method: 'POST',
