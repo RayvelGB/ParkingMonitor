@@ -145,6 +145,9 @@
                         <button id="assign-zones-btn" class="bg-gray-600 hover:bg-gray-500 px-3 py-1 rounded text-sm flex items-center flex-shrink-0">
                             <i class="fas fa-layer-group mr-2"></i> Assign Zones
                         </button>
+                        <button id="delete-camera-btn" class="bg-red-600 hover:bg-red-700 px-3 py-1 rounded text-sm flex items-center flex-shrink-0">
+                            <i class="fas fa-trash mr-2"></i> Delete
+                        </button>
                     </div>
                 </div>
                 
@@ -258,6 +261,7 @@
             const occupancyBarEl = document.getElementById('occupancy-bar');
             const editBoundsBtn = document.getElementById('edit-bounds-btn');
             const assignZonesBtn = document.getElementById('assign-zones-btn');
+            const deleteCamBtn = document.getElementById('delete-camera-btn');
             const currentTimeEl = document.getElementById('current-time');
             const cameraIdDisplayEl = document.getElementById('camera-id-display');
             const lastUpdatedEl = document.getElementById('last-updated');
@@ -498,6 +502,33 @@
                     }
                     setTimeout(() => settingsStatus.textContent = '', 2000);
                 });
+            });
+
+            deleteCamBtn.addEventListener('click', () => {
+                if (!camera_id) return;
+
+                if (confirm('Are you sure you want to permanently delete this camera and all its data? This action cannot be undone.')) {
+                    stopStream();
+
+                    fetch(`/delete_camera/${camera_id}`, {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({ user_id: user.user_id })
+                    })
+                    .then(response => response.json())
+                    .then(result => {
+                        if (result.success) {
+                            alert('Camera deleted successfully.');
+                            window.location.href = '/register_camera.html'
+                        } else {
+                            alert(`Error: ${result.error || 'Failed to delete camera.'}`);
+                        }
+                    })
+                    .catch(err => {
+                        console.error('Delete error:', err);
+                        alert('An error occurred while trying to delete the camera.');
+                    });
+                }
             });
 
             // --- Main Execution ---

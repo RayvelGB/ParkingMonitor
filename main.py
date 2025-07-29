@@ -263,6 +263,36 @@ def get_cameras(user_id: int):
         return JSONResponse(content=cameras)
     except mysql.connector.Error as err:
         return JSONResponse(status_code=500, content={'error': f'Database error: {err}'})
+    
+@app.post('/delete_camera/{camera_id}')
+async def delete_camera(camera_id: str, request: Request):
+    data = await request.json()
+    user_id = data.get('user_id')
+
+    if not user_id and not verify_camera_ownership(camera_id, user_id):
+        return JSONResponse(status_code=403, content={'success': False, 'error': 'Permission denied.'})
+    
+    try:
+        conn = mysql.connector.connect(**DB_CONFIG)
+        cursor = conn.cursor()
+
+        cursor.execute("DELETE FROM logs WHERE camera_id = %s", (camera_id,))
+        cursor.execute("DELETE FROM camera_settings WHERE camera_id = %s", (camera_id,))
+        cursor.execute("DELETE FROM bounding_boxes WHERE camera_id = %s", (camera_id,))
+        cursor.execute("DELETE FROM cameras WHERE id = %s AND user_id = %s", (camera_id, user_id))
+
+        conn.commit()
+
+        if camera_id in video_detectors:
+            video_detectors[camera_id].stop()
+            del video_detectors[camera_id]
+
+        cursor.close()
+        conn.close()
+        return JSONResponse(content={'success': True})
+    
+    except mysql.connector.Error as err:
+        return JSONResponse(status_code=500, content={'success': False, 'error': f'Database error: {err}'})
 
 # -- Bounding Box and Stream Endpoints --
 @app.get('/capture_frame/{camera_id}')
@@ -421,9 +451,6 @@ async def start_stream(request: Request):
     camera_id = data.get('camera_id')
     user_id = data.get('user_id')
     
-    if not user_id or not verify_camera_ownership(camera_id, user_id):
-        return JSONResponse(status_code=403, content={'success': False, 'error': 'Permission denied.'})
-    
     if camera_id in video_detectors and video_detectors[camera_id].running:
         print(f"Stream for camera {camera_id} is already running. No action needed.")
         return JSONResponse({'success': True, 'message': 'Stream already running.'})
@@ -437,6 +464,9 @@ async def start_stream(request: Request):
         conn.close()
         if not camera:
             return JSONResponse(status_code=404, content={'error': 'Camera not registered.'})
+        
+        if not user_id or not verify_camera_ownership(camera_id, user_id):
+            return JSONResponse(status_code=403, content={'success': False, 'error': 'Permission denied.'})
         
         rtsp_url = camera['stream_url']
         detector = VideoDetector(rtsp_url, camera_id)
