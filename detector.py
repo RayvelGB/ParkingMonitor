@@ -61,10 +61,10 @@ class VideoDetector:
             cursor.execute("SELECT points, zone_name FROM bounding_boxes WHERE camera_id = %s ORDER BY box_index ASC", (self.camera_id,))
             result = cursor.fetchall()
 
-            new_box_count = len(result)
+            new_parking_data = [{'points': json.loads(row['points']), 'zone': row['zone_name']} for row in result]
 
-            if new_box_count != self.total_spaces:
-                print(f"[{time.strftime('%H:%M:%S')}] Number of spaces changed from {self.total_spaces} to {new_box_count}. Resetting state.")
+            if new_parking_data != self.parking_boxes_data:
+                print(f"[{time.strftime('%H:%M:%S')}] Change in bounding boxes detected. Resetting state.")
 
                 if result:
                     self.parking_boxes_data = [{'points': json.loads(row['points']), 'zone': row['zone_name']} for row in result]
