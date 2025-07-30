@@ -111,6 +111,15 @@
                             <input id="iou-slider" type="range" min="0.1" max="0.9" step="0.05" value="0.3" class="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer">
                         </div>
 
+                        <!-- Confirmation Time Slider -->
+                        <div class="mb-4">
+                            <label for="confirmation-slider" class="flex justify-between text-sm font-medium text-gray-300">
+                                <span>Confirmation Time (s)</span>
+                                <span id="confirmation-value">5</span>
+                            </label>
+                            <input id="confirmation-slider" type="range" min="1" max="30" step="1" value="5" class="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer">
+                        </div>
+
                         <!-- Intersection Only Checkbox -->
                         <div class="flex items-center mb-4">
                             <input id="intersection-checkbox" type="checkbox" class="w-4 h-4 text-blue-600 bg-gray-700 border-gray-600 rounded focus:ring-blue-500">
@@ -282,6 +291,8 @@
             const iouSlider = document.getElementById('iou-slider');
             const iouValue = document.getElementById('iou-value');
             const iouContainer = document.getElementById('iou-container');
+            const confirmationSlider = document.getElementById('confirmation-slider');
+            const confirmationValue = document.getElementById('confirmation-value');
             const intersectionCheckbox = document.getElementById('intersection-checkbox');
             const saveSettingsBtn = document.getElementById('save-settings-btn');
             const settingsStatus = document.getElementById('settings-status');
@@ -454,6 +465,10 @@
                 iouValue.textContent = parseFloat(iouSlider.value).toFixed(2);
             });
 
+            confirmationSlider.addEventListener('input', () => {
+                confirmationValue.textContent = confirmationSlider.value;
+            });
+
             function toggleIouSlider() {
                 if (intersectionCheckbox.checked) {
                     iouContainer.classList.add('opacity-50');
@@ -475,6 +490,8 @@
                         detectionValue.textContent = parseFloat(settings.detection_threshold).toFixed(2);
                         iouSlider.value = settings.iou_threshold;
                         iouValue.textContent = parseFloat(settings.iou_threshold).toFixed(2);
+                        confirmationSlider.value = settings.confirmation_time;
+                        confirmationValue.textContent = settings.confirmation_time;
                         intersectionCheckbox.checked = settings.use_intersection_only;
                         toggleIouSlider();
                     });
@@ -486,7 +503,8 @@
                     user_id: user.user_id,
                     detection_threshold: parseFloat(detectionSlider.value),
                     iou_threshold: parseFloat(iouSlider.value),
-                    use_intersection_only: intersectionCheckbox.checked
+                    use_intersection_only: intersectionCheckbox.checked,
+                    confirmation_time: parseInt(confirmationSlider.value)
                 };
                 fetch(`/save_settings/${camera_id}`, {
                     method: 'POST',

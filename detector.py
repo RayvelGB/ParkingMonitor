@@ -36,10 +36,9 @@ class VideoDetector:
         self.detection_threshold = 0.35
         self.iou_threshold = 0.3
         self.use_intersection_only = False
+        self.confirmation_time = 5
 
         self.reload_configuration()
-
-        self.CONFIRMATION_TIME = 5
         self.log_messages = self.load_logs_from_db()
 
     # -- Reload configuration without refresh --
@@ -56,7 +55,8 @@ class VideoDetector:
                 self.detection_threshold = settings.get('detection_threshold', 0.35)
                 self.iou_threshold = settings.get('iou_threshold', 0.3)
                 self.use_intersection_only = settings.get('use_intersection_only', False)
-                print(f"[{time.strftime('%H:%M:%S')}] Loaded settings: DET={self.detection_threshold}, IOU={self.iou_threshold}, INTERSECT_ONLY={self.use_intersection_only}")
+                self.confirmation_time = settings.get('confirmation_time', 5)
+                print(f"[{time.strftime('%H:%M:%S')}] Loaded settings: DET={self.detection_threshold}, IOU={self.iou_threshold}, INTERSECT_ONLY={self.use_intersection_only}, CONFIRMATION_TIME={self.confirmation_time}")
 
             cursor.execute("SELECT points, zone_name FROM bounding_boxes WHERE camera_id = %s ORDER BY box_index ASC", (self.camera_id,))
             result = cursor.fetchall()
@@ -236,7 +236,7 @@ class VideoDetector:
                     if occupied:
                         if self.slot_status[idx]['detection_start_time'] is None:
                             self.slot_status[idx]['detection_start_time'] = current_time
-                        elif current_time - self.slot_status[idx]['detection_start_time'] >= self.CONFIRMATION_TIME:
+                        elif current_time - self.slot_status[idx]['detection_start_time'] >= self.confirmation_time:
                             if not self.slot_status[idx]['occupied']:
 
                                 self.slot_status[idx]['occupied'] = True
@@ -285,7 +285,7 @@ class VideoDetector:
                     
                     elif detection_start is not None:
                         time_detected = current_time - detection_start
-                        if time_detected < self.CONFIRMATION_TIME:
+                        if time_detected < self.confirmation_time:
                             color = (0, 255, 255) # Yellow (Pending)
                             thickness = 2
                     

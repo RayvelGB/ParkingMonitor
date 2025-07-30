@@ -66,6 +66,8 @@ def createDB_and_tables():
                 detection_threshold FLOAT DEFAULT 0.35,
                 iou_threshold FLOAT DEFAULT 0.3,
                 use_intersection_only BOOLEAN DEFAULT FALSE,
+                confirmation_time INT DEFAULT 5,
+                       
                 FOREIGN KEY (camera_id) REFERENCES cameras (id)
             )
         """)
@@ -389,25 +391,27 @@ async def save_settings(camera_id: str, request: Request):
     data = await request.json()
     user_id = data.get('user_id')
 
-    if not user_id and not verify_camera_ownership(camera_id, user_id):
+    if not user_id or not verify_camera_ownership(camera_id, user_id):
         return JSONResponse(status_code=403, content={'error': 'Permission denied.'})
     
     detection_threshold = data.get('detection_threshold')
     iou_threshold = data.get('iou_threshold')
     use_intersection_only = data.get('use_intersection_only')
+    confirmation_time = data.get('confirmation_time')
 
     try:
         conn = mysql.connector.connect(**DB_CONFIG)
         cursor = conn.cursor()
         query = """
-            INSERT INTO camera_settings (camera_id, detection_threshold, iou_threshold, use_intersection_only) 
-            VALUES (%s, %s, %s, %s)
+            INSERT INTO camera_settings (camera_id, detection_threshold, iou_threshold, use_intersection_only, confirmation_time) 
+            VALUES (%s, %s, %s, %s, %s)
             ON DUPLICATE KEY UPDATE 
                 detection_threshold = VALUES(detection_threshold), 
                 iou_threshold = VALUES(iou_threshold), 
-                use_intersection_only = VALUES(use_intersection_only)
+                use_intersection_only = VALUES(use_intersection_only),
+                confirmation_time = VALUES(confirmation_time)
         """
-        cursor.execute(query, (camera_id, detection_threshold, iou_threshold, use_intersection_only))
+        cursor.execute(query, (camera_id, detection_threshold, iou_threshold, use_intersection_only, confirmation_time))
         conn.commit()
         cursor.close()
         conn.close()
@@ -439,7 +443,8 @@ def get_settings(camera_id: str, user_id: int):
             return JSONResponse(content={
                 'detection_threshold': 0.35,
                 'iou_threshold': 0.3,
-                'use_intersection_only': False
+                'use_intersection_only': False,
+                'confirmation_time': 5
             })
         
     except mysql.connector.Error as err:
