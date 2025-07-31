@@ -268,10 +268,10 @@ class VideoDetector:
                         
                     if len(self.log_messages) > 50: # Limit number of logs at 50 for better memory efficiency
                         self.log_messages.pop(0)
-                        
-                    if not occupied:
+
+                    if not self.slot_status[idx]['occupied']:
                         self.available_slots += 1
-                        # Save number of available spaces
+                        # Save available slots
 
                     # -- Coloring of bouding boxes for visualization of occupancy and vacancy --
                     confirmed_occupancy = self.slot_status[idx]['occupied']
