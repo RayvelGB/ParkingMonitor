@@ -19,7 +19,7 @@ DB_CONFIG = {
     'host':'localhost',
     'user': 'root',
     'password': '',
-    'database': 'parking_monitor_db'
+    'database': 'entry_db'
 }
 
 # -- Initialize password hash --
@@ -64,9 +64,6 @@ def createDB_and_tables():
                 id INT AUTO_INCREMENT PRIMARY KEY,
                 camera_id VARCHAR(36) UNIQUE,
                 detection_threshold FLOAT DEFAULT 0.35,
-                iou_threshold FLOAT DEFAULT 0.3,
-                use_intersection_only BOOLEAN DEFAULT FALSE,
-                confirmation_time INT DEFAULT 5,
                        
                 FOREIGN KEY (camera_id) REFERENCES cameras (id)
             )
@@ -106,8 +103,6 @@ def createDB_and_tables():
     except mysql.connector.Error as err:
         print(f'Error creating database and tables: {err}')
 
-createDB_and_tables()
-
 def verify_camera_ownership(camera_id: str, user_id: int) -> bool:
     try:
         conn = mysql.connector.connect(**DB_CONFIG)
@@ -140,8 +135,38 @@ def run_log_cleanup_scheduler():
         schedule.run_pending()
         time.sleep(60)
 
-cleanup_thread = Thread(target=run_log_cleanup_scheduler, daemon=True)
-cleanup_thread.start()
+def start_all_detectors():
+    print('Starting detectors for all registered cameras...')
+    try:
+        conn = mysql.connector.connect(**DB_CONFIG)
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute("SELECT id, stream_url FROM cameras")
+        all_cameras = cursor.fetchall()
+        cursor.close()
+        conn.close()
+
+        for camera in all_cameras:
+            camera_id = camera['id']
+            rtsp_url = camera['stream_url']
+
+            if camera_id not in video_detectors:
+                print(f'Initializing detector for camera: {camera_id}')
+                detector = VideoDetector(rtsp_url, camera_id)
+                video_detectors[camera_id] = detector
+                t = Thread(target=detector.run, daemon=True)
+                t.start()
+        print(f'Completed startup. {len(video_detectors)} detectors are running.')
+
+    except mysql.connector.Error as err:
+        print(f'Database error during startup: {err}')
+
+@app.on_event('startup')
+def on_startup():
+    createDB_and_tables()
+    start_all_detectors()
+    
+    cleanup_thread = Thread(target=run_log_cleanup_scheduler, daemon=True)
+    cleanup_thread.start()
 
 # -- Serve HTML Pages --
 @app.get('/')
@@ -395,23 +420,17 @@ async def save_settings(camera_id: str, request: Request):
         return JSONResponse(status_code=403, content={'error': 'Permission denied.'})
     
     detection_threshold = data.get('detection_threshold')
-    iou_threshold = data.get('iou_threshold')
-    use_intersection_only = data.get('use_intersection_only')
-    confirmation_time = data.get('confirmation_time')
 
     try:
         conn = mysql.connector.connect(**DB_CONFIG)
         cursor = conn.cursor()
         query = """
-            INSERT INTO camera_settings (camera_id, detection_threshold, iou_threshold, use_intersection_only, confirmation_time) 
-            VALUES (%s, %s, %s, %s, %s)
+            INSERT INTO camera_settings (camera_id, detection_threshold) 
+            VALUES (%s, %s)
             ON DUPLICATE KEY UPDATE 
                 detection_threshold = VALUES(detection_threshold), 
-                iou_threshold = VALUES(iou_threshold), 
-                use_intersection_only = VALUES(use_intersection_only),
-                confirmation_time = VALUES(confirmation_time)
         """
-        cursor.execute(query, (camera_id, detection_threshold, iou_threshold, use_intersection_only, confirmation_time))
+        cursor.execute(query, (camera_id, detection_threshold))
         conn.commit()
         cursor.close()
         conn.close()
@@ -441,10 +460,7 @@ def get_settings(camera_id: str, user_id: int):
             return JSONResponse(content=settings)
         else:
             return JSONResponse(content={
-                'detection_threshold': 0.35,
-                'iou_threshold': 0.3,
-                'use_intersection_only': False,
-                'confirmation_time': 5
+                'detection_threshold': 0.35
             })
         
     except mysql.connector.Error as err:

@@ -102,30 +102,6 @@
                             <input id="detection-slider" type="range" min="0.1" max="0.9" step="0.05" value="0.35" class="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer">
                         </div>
 
-                        <!-- IOU Threshold -->
-                        <div id="iou-container" class="mb-4 transition-opaciy duration-300">
-                            <label for="iou-slider" class="flex justify-between text-sm font-medium text-gray-300">
-                                <span>IOU Threshold</span>
-                                <span id="iou-value">0.30</span>
-                            </label>
-                            <input id="iou-slider" type="range" min="0.1" max="0.9" step="0.05" value="0.3" class="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer">
-                        </div>
-
-                        <!-- Confirmation Time Slider -->
-                        <div class="mb-4">
-                            <label for="confirmation-slider" class="flex justify-between text-sm font-medium text-gray-300">
-                                <span>Confirmation Time (s)</span>
-                                <span id="confirmation-value">5</span>
-                            </label>
-                            <input id="confirmation-slider" type="range" min="1" max="30" step="1" value="5" class="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer">
-                        </div>
-
-                        <!-- Intersection Only Checkbox -->
-                        <div class="flex items-center mb-4">
-                            <input id="intersection-checkbox" type="checkbox" class="w-4 h-4 text-blue-600 bg-gray-700 border-gray-600 rounded focus:ring-blue-500">
-                            <label for="intersection-checkbox" class="ml-2 text-sm font-medium text-gray-300">Use Intersection Only</label>
-                        </div>
-
                         <button id="save-settings-btn" class="w-full bg-blue-600 hover:bg-blue-700 py-2 rounded-lg flex items-center justify-center transition">
                             Save Settings
                         </button>
@@ -145,9 +121,15 @@
                         Live Parking Feed
                     </h2>
                     <div class="flex items-center gap-2">
-                        <select id="camera-select" class="bg-gray-600 border-gray-500 text-white text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-1.5 cursor-pointer">
-                            <option selected disabled>Change Camera...</option>
-                        </select>
+                        <div id="camera-carousel" class="flex items-center space-x-3 bg-gray-600 px-3 py-1.5 rounded-lg">
+                            <button id="prev-camera-btn" class="text-white hover:text-blue-400 transition disabled:opacity-50 disabled:cursor-not-allowed">
+                                <i class="fas fa-chevron-left"></i>
+                            </button>
+                            <span id="camera-name-display" class="font-semibold text-white text-sm w-40 text-center truncate" title="Camera Name">Loading...</span>
+                            <button id="next-camera-btn" class="text-white hover:text-blue-400 transition disabled:opacity-50 disabled:cursor-not-allowed">
+                                <i class="fas fa-chevron-right"></i>
+                            </button>
+                        </div>
                         <button id="edit-bounds-btn" class="bg-gray-600 hover:bg-gray-500 px-3 py-1 rounded text-sm flex items-center flex-shrink-0">
                             <i class="fas fa-draw-polygon mr-2"></i> Edit Spaces
                         </button>
@@ -238,7 +220,7 @@
                         <tr>
                             <th scope="col" class="px-6 py-3 text-center text-xs font-semibold text-gray-400 uppercase tracking-wider">Time</th>
                             <th scope="col" class="px-6 py-3 text-center text-xs font-semibold text-gray-400 uppercase tracking-wider">Event</th>
-                            <th scope="col" class="px-6 py-3 text-center text-xs font-semibold text-gray-400 uppercase tracking-wider">Zone / Slot</th>
+                            <th scope="col" class="px-6 py-3 text-center text-xs font-semibold text-gray-400 uppercase tracking-wider">Location</th>
                             <th scope="col" class="px-6 py-3 text-center text-xs font-semibold text-gray-400 uppercase tracking-wider">Details</th>
                         </tr>
                     </thead>
@@ -275,7 +257,9 @@
             const cameraIdDisplayEl = document.getElementById('camera-id-display');
             const lastUpdatedEl = document.getElementById('last-updated');
             const streamStatusIndicator = document.getElementById('stream-status-indicator');
-            const cameraSelect = document.getElementById('camera-select');
+             const prevCamBtn = document.getElementById('prev-camera-btn');
+            const nextCamBtn = document.getElementById('next-camera-btn');
+            const camNameDisplay = document.getElementById('camera-name-display');
             const userMenuButton = document.getElementById('user-menu-button');
             const userMenu = document.getElementById('user-menu');
             const userInitial = document.getElementById('user-initial');
@@ -288,21 +272,19 @@
             const settingsMenu = document.getElementById('settings-menu');
             const detectionSlider = document.getElementById('detection-slider');
             const detectionValue = document.getElementById('detection-value');
-            const iouSlider = document.getElementById('iou-slider');
-            const iouValue = document.getElementById('iou-value');
-            const iouContainer = document.getElementById('iou-container');
-            const confirmationSlider = document.getElementById('confirmation-slider');
-            const confirmationValue = document.getElementById('confirmation-value');
-            const intersectionCheckbox = document.getElementById('intersection-checkbox');
             const saveSettingsBtn = document.getElementById('save-settings-btn');
             const settingsStatus = document.getElementById('settings-status');
 
             // --- Initial State & Auth ---
+            let currentCameraId = null;
             const urlParams = new URLSearchParams(window.location.search);
             const camera_id = urlParams.get('camera_id');
             const user = JSON.parse(sessionStorage.getItem('user'));
             let totalParkingSpaces = null;
             let lastLogMessage = "";
+            let allCameras = [];
+            let currentCameraIndex = -1;
+            let logInterval;
 
             if (!user) {
                 window.location.href = '/';
@@ -345,22 +327,69 @@
             logoutBtn.addEventListener('click', logout);
             changeAccountBtn.addEventListener('click', logout);
 
-            function populateCameraSelector() {
-                fetch(`/get_cameras/${user.user_id}`)
-                    .then(response => response.json())
-                    .then(cameras => {
-                        cameraSelect.innerHTML = '<option selected disabled>Change Camera...</option>';
-                        for (const id in cameras) {
-                            const option = document.createElement('option');
-                            option.value = id;
-                            option.textContent = cameras[id].camera_name || `Cam ${id.substring(0, 8)}...`;
-                            if (id === camera_id) {
-                                option.selected = true;
-                            }
-                            cameraSelect.appendChild(option);
-                        }
-                    })
-                    .catch(err => console.error('Error fetching cameras:', err));
+            function switchCamera(newIndex) {
+                if (newIndex < 0 || newIndex >= allCameras.length) {
+                    return; // Index out of bounds
+                }
+
+                if (logInterval) clearInterval(logInterval);
+
+                currentCameraIndex = newIndex;
+                const newCamera = allCameras[currentCameraIndex];
+                currentCameraId = newCamera.id;
+
+                videoFeed.src = `/video_feed/${currentCameraId}?t=${new Date().getTime()}`;
+                
+                camNameDisplay.textContent = newCamera.name;
+                camNameDisplay.title = newCamera.name;
+                loader.classList.add('hidden');
+                videoFeed.classList.remove('hidden');
+                streamStatusIndicator.innerHTML = `<div class="w-2 h-2 bg-green-500 rounded-full mr-2 live-indicator"></div><span class="font-medium text-green-400">Online</span>`;
+
+                const newUrl = `/stream.html?camera_id=${currentCameraId}`;
+                history.pushState({ path: newUrl }, '', newUrl);
+                prevCamBtn.disabled = currentCameraIndex === 0;
+                nextCamBtn.disabled = currentCameraIndex === allCameras.length - 1;
+
+                fetchLogs(currentCameraId);
+                logInterval = setInterval(() => fetchLogs(currentCameraId), 2000);
+                loadSettings(currentCameraId);
+            }
+
+            async function initializePage() {
+                try {
+                    const response = await fetch(`/get_cameras/${user.user_id}`);
+                    if (!response.ok) {
+                        throw new Error(`Server responded with ${response.status}`);
+                    }
+                    const cameras = await response.json();
+                    
+                    allCameras = Object.entries(cameras).map(([id, data]) => ({
+                        id: id,
+                        name: data.camera_name || `Cam ${id.substring(0, 8)}`
+                    }));
+
+                    if (allCameras.length === 0) {
+                        loader.innerHTML = '<div class="text-center"><i class="fas fa-video-slash text-gray-500 text-5xl mb-4"></i><p class="text-gray-400">No cameras registered. <a href="/register_camera.html" class="text-blue-400 hover:underline">Add a camera</a> to begin.</p></div>';
+                        camNameDisplay.textContent = "No Cameras";
+                        [prevCamBtn, nextCamBtn, editBoundsBtn].forEach(btn => btn.disabled = true);
+                        return;
+                    }
+
+                    const urlParams = new URLSearchParams(window.location.search);
+                    const requestedCameraId = urlParams.get('camera_id');
+                    let startIndex = allCameras.findIndex(cam => cam.id === requestedCameraId);
+                    if (startIndex === -1) {
+                        startIndex = 0;
+                    }
+                    
+                    switchCamera(startIndex);
+
+                } catch (err) {
+                    console.error("Initialization failed:", err);
+                    loader.innerHTML = `<div class="text-center"><i class="fas fa-exclamation-triangle text-red-500 text-5xl mb-4"></i><p class="text-gray-400">Error loading camera data. Please check server connection and try again.</p></div>`;
+                    streamStatusIndicator.innerHTML = `<div class="w-2 h-2 bg-red-500 rounded-full mr-2"></div><span class="font-medium text-red-400">Offline</span>`;
+                }
             }
 
             function fetchLogs() {
@@ -399,21 +428,13 @@
                             data.logs.reverse().forEach(msg => {
                                 let eventType = '', eventIcon = '', iconColor = '', slotText = '--', details = '';
 
-                                if (msg.includes('OCCUPIED')) {
-                                    eventType = 'Occupied'; eventIcon = 'fa-car'; iconColor = 'text-red-400';
-                                    const match = msg.match(/\[(.*?)\] (?:(.*?) - )?Slot (\d+) OCCUPIED/);
+                                if (msg.includes('ENTRY')) {
+                                    eventType = 'Entry'; eventIcon = 'fa-car'; iconColor = 'text-green-400';
+                                    const match = msg.match(/\[(.*?)\] (?:(.*?) - )?Slot (\d+) ENTRY/);
                                     if (match) {
                                         const zone = match[2] ? `${match[2]} - ` : '';
-                                        slotText = `${zone}Slot ${match[3]}`;
-                                        details = `Vehicle detected at ${match[1]}`;
-                                    }
-                                } else if (msg.includes('VACATED')) {
-                                    eventType = 'Vacated'; eventIcon = 'fa-car-side'; iconColor = 'text-green-400';
-                                    const match = msg.match(/\[(.*?)\] (?:(.*?) - )?Slot (\d+) VACATED - Occupied for (.*)/);
-                                    if (match) {
-                                        const zone = match[2] ? `${match[2]} - ` : '';
-                                        slotText = `${zone}Slot ${match[3]}`;
-                                        details = `Occupied for ${match[4]}`;
+                                        slotText = camNameDisplay.textContent;
+                                        details = `Vehicle entry detected at ${match[1]}`;
                                     }
                                 }
 
@@ -461,25 +482,6 @@
                 detectionValue.textContent = parseFloat(detectionSlider.value).toFixed(2);
             });
 
-            iouSlider.addEventListener('input', () => {
-                iouValue.textContent = parseFloat(iouSlider.value).toFixed(2);
-            });
-
-            confirmationSlider.addEventListener('input', () => {
-                confirmationValue.textContent = confirmationSlider.value;
-            });
-
-            function toggleIouSlider() {
-                if (intersectionCheckbox.checked) {
-                    iouContainer.classList.add('opacity-50');
-                    iouSlider.disabled = true;
-                } else {
-                    iouContainer.classList.remove('opacity-50');
-                    iouSlider.disabled = false;
-                }
-            }
-
-            intersectionCheckbox.addEventListener('change', toggleIouSlider);
 
             function loadSettings() {
                 if (!camera_id) return;
@@ -488,12 +490,6 @@
                     .then(settings => {
                         detectionSlider.value = settings.detection_threshold;
                         detectionValue.textContent = parseFloat(settings.detection_threshold).toFixed(2);
-                        iouSlider.value = settings.iou_threshold;
-                        iouValue.textContent = parseFloat(settings.iou_threshold).toFixed(2);
-                        confirmationSlider.value = settings.confirmation_time;
-                        confirmationValue.textContent = settings.confirmation_time;
-                        intersectionCheckbox.checked = settings.use_intersection_only;
-                        toggleIouSlider();
                     });
             }
 
@@ -501,10 +497,7 @@
                 settingsStatus.textContent = 'Saving...';
                 const settings = {
                     user_id: user.user_id,
-                    detection_threshold: parseFloat(detectionSlider.value),
-                    iou_threshold: parseFloat(iouSlider.value),
-                    use_intersection_only: intersectionCheckbox.checked,
-                    confirmation_time: parseInt(confirmationSlider.value)
+                    detection_threshold: parseFloat(detectionSlider.value)
                 };
                 fetch(`/save_settings/${camera_id}`, {
                     method: 'POST',
@@ -550,16 +543,15 @@
             });
 
             // --- Main Execution ---
+            initializePage();
+
             if (!camera_id) {
                 loader.innerHTML = '<div class="text-center"><i class="fas fa-video-slash text-gray-500 text-5xl mb-4"></i><p class="text-gray-400">Select a camera to begin.</p></div>';
                 populateCameraSelector();
                 return;
             }
             
-            
             cameraIdDisplayEl.textContent = camera_id;
-            populateCameraSelector();
-            loadSettings();
 
             fetch('/start_stream', {
                 method: 'POST',
@@ -573,9 +565,6 @@
                     videoFeed.classList.remove('hidden');
                     videoFeed.src = `/video_feed/${camera_id}`;
                     streamStatusIndicator.innerHTML = '<div class="w-2 h-2 bg-green-500 rounded-full mr-2 live-indicator"></div><span class="font-medium text-green-400">Online</span>';
-                    
-                    fetchLogs();
-                    setInterval(fetchLogs, 2000);
                 } else {
                     loader.innerHTML = `<div class="text-center"><i class="fas fa-exclamation-triangle text-red-500 text-5xl mb-4"></i><p class="text-gray-400">Failed to start stream: ${result.error || 'Permission Denied'}</p></div>`;
                     streamStatusIndicator.innerHTML = '<div class="w-2 h-2 bg-red-500 rounded-full mr-2"></div><span class="font-medium text-red-400">Offline</span>';
@@ -595,13 +584,8 @@
                 }
             });
 
-            cameraSelect.addEventListener('change', (e) => {
-                const newCameraId = e.target.value;
-                if (newCameraId && newCameraId !== camera_id) {
-                    stopStream();
-                    window.location.href = `/stream.html?camera_id=${newCameraId}`;
-                }
-            });
+            prevCamBtn.addEventListener('click', () => switchCamera(currentCameraIndex - 1));
+            nextCamBtn.addEventListener('click', () => switchCamera(currentCameraIndex + 1));
 
             document.addEventListener('visibilitychange', () => {
                 if (document.visibilityState === 'visible' && camera_id) {

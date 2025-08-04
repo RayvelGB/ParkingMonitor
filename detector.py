@@ -13,7 +13,7 @@ DB_CONFIG = {
     'host': 'localhost',
     'user': 'root',
     'password': '',
-    'database': 'parking_monitor_db'
+    'database': 'entry_db'
 }
 
 class VideoDetector:
@@ -34,9 +34,6 @@ class VideoDetector:
         self.available_slots = 0
 
         self.detection_threshold = 0.35
-        self.iou_threshold = 0.3
-        self.use_intersection_only = False
-        self.confirmation_time = 5
 
         self.reload_configuration()
         self.log_messages = self.load_logs_from_db()
@@ -53,10 +50,7 @@ class VideoDetector:
 
             if settings:
                 self.detection_threshold = settings.get('detection_threshold', 0.35)
-                self.iou_threshold = settings.get('iou_threshold', 0.3)
-                self.use_intersection_only = settings.get('use_intersection_only', False)
-                self.confirmation_time = settings.get('confirmation_time', 5)
-                print(f"[{time.strftime('%H:%M:%S')}] Loaded settings: DET={self.detection_threshold}, IOU={self.iou_threshold}, INTERSECT_ONLY={self.use_intersection_only}, CONFIRMATION_TIME={self.confirmation_time}")
+                print(f"[{time.strftime('%H:%M:%S')}] Loaded settings: DET={self.detection_threshold}")
 
             cursor.execute("SELECT points, zone_name FROM bounding_boxes WHERE camera_id = %s ORDER BY box_index ASC", (self.camera_id,))
             result = cursor.fetchall()
@@ -76,10 +70,9 @@ class VideoDetector:
                 self.total_spaces = len(self.parking_boxes)
                 self.slot_status = {
                     idx: {
-                        'occupied': False, 
+                        'entry': False, 
                         'last_changed': time.time(), 
-                        'entry_time': None, 
-                        'detection_start_time': None
+                        'entry_time': None
                     } 
                     for idx in range(len(self.parking_boxes))}
                 self.available_slots = self.total_spaces
@@ -128,19 +121,7 @@ class VideoDetector:
 
             return boxes, labels, scores
     
-    # -- Calculation of Intersection over Union --
-    def calculate_iou(self, rect, poly_points):
-        car_box = box(rect[0], rect[1], rect[2], rect[3]) # Detected object box
-        parking_poly = Polygon(poly_points) # User-made bounding box
-
-        if not car_box.intersects(parking_poly):
-            return 0.0
-        
-        inter_area = car_box.intersection(parking_poly).area
-        union_area = car_box.union(parking_poly).area
-
-        return inter_area / union_area
-    
+    # -- Check for intersection --
     def check_intersection(self, rect, poly_points):
         car_box = box(rect[0], rect[1], rect[2], rect[3]) # Detected object box
         parking_poly = Polygon(poly_points) # User-made bounding box
@@ -212,82 +193,38 @@ class VideoDetector:
                 boxes = boxes[car_indices]
 
                 current_time = time.time()
-                self.available_slots = 0
                 for idx, points in enumerate(self.parking_boxes):
-                    occupied = False
+                    entry = False
                         
                     for bbox in boxes:
                         rect = (bbox[0], bbox[1], bbox[2], bbox[3])
                         
-                        if self.use_intersection_only:
-                            if self.check_intersection(rect, points):
-                                occupied = True
-                                break
-                        else:
-                            iou = self.calculate_iou(rect, points)
-                            if iou > self.iou_threshold:
-                                occupied = True
-                                break
+                        if self.check_intersection(rect, points):
+                            entry = True
+                            break
+
+                    previous_entry = self.slot_status[idx]['entry']
+                    self.slot_status[idx]['entry'] = entry
                     
                     zone_name = self.parking_boxes_data[idx].get('zone')
                     zone_prefix = f'{zone_name} - ' if zone_name else ''
-                    
-                    # -- Temporal Confirmation --
-                    if occupied:
-                        if self.slot_status[idx]['detection_start_time'] is None:
-                            self.slot_status[idx]['detection_start_time'] = current_time
-                        elif current_time - self.slot_status[idx]['detection_start_time'] >= self.confirmation_time:
-                            if not self.slot_status[idx]['occupied']:
-
-                                self.slot_status[idx]['occupied'] = True
-                                self.slot_status[idx]['last_changed'] = current_time
-                                self.slot_status[idx]['entry_time'] = current_time
-                                log = f"[{time.strftime('%H:%M:%S')}] {zone_prefix}Slot {idx+1} OCCUPIED"
-                                self.log_messages.append(log)
-                                self.save_logs_to_db(log)
-
-                    else:
-                        self.slot_status[idx]['detection_start_time'] = None
-                        if self.slot_status[idx]['occupied']:
-                            duration = current_time - self.slot_status[idx]['entry_time'] if self.slot_status[idx]['entry_time'] else 0
-
-                            if duration / 60 < 1:
-                                log = f"[{time.strftime('%H:%M:%S')}] {zone_prefix}Slot {idx+1} VACATED - Occupied for {duration:.1f} seconds"
-                            elif duration / 60 >= 1 and duration / 3600 < 1:
-                                duration = duration / 60
-                                log = f"[{time.strftime('%H:%M:%S')}] {zone_prefix}Slot {idx+1} VACATED - Occupied for {duration:.1f} minutes"
-                            elif duration / 3600 >= 1:
-                                duration = duration / 3600
-                                log = f"[{time.strftime('%H:%M:%S')}] {zone_prefix}Slot {idx+1} VACATED - Occupied for {duration:.1f} hours"
-                            self.log_messages.append(log)
-                            self.save_logs_to_db(log)
-                        
-                        self.slot_status[idx]['occupied'] = False
-                        self.slot_status[idx]['last_changed'] = current_time
-                        self.slot_status[idx]['entry_time'] = None # Default back to None when vacated
+                
+                    if not previous_entry and entry:
+                        log = f"[{time.strftime('%H:%M:%S')}] {zone_prefix}Slot {idx+1} ENTRY"
+                        self.available_slots = max(0, self.available_slots - 1)
+                        self.log_messages.append(log)
+                        self.save_logs_to_db(log)
                         
                     if len(self.log_messages) > 50: # Limit number of logs at 50 for better memory efficiency
                         self.log_messages.pop(0)
 
-                    if not self.slot_status[idx]['occupied']:
-                        self.available_slots += 1
-                        # Save available slots
-
                     # -- Coloring of bouding boxes for visualization of occupancy and vacancy --
-                    confirmed_occupancy = self.slot_status[idx]['occupied']
-                    detection_start = self.slot_status[idx]['detection_start_time']
                     color = (0, 255, 0) # Green (Vacant)
                     thickness = 4
 
-                    if confirmed_occupancy:
+                    if entry:
                         color = (0, 0, 255) # Red (Occupied)
                         thickness = 2
-                    
-                    elif detection_start is not None:
-                        time_detected = current_time - detection_start
-                        if time_detected < self.confirmation_time:
-                            color = (0, 255, 255) # Yellow (Pending)
-                            thickness = 2
                     
                     pts = np.array(points, np.int32).reshape((-1, 1, 2))
                     cv2.polylines(frame, [pts], isClosed=True, color=color, thickness=thickness)
