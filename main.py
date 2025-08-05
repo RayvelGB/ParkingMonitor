@@ -2,7 +2,7 @@ from fastapi import FastAPI, Form, Request
 from fastapi.responses import StreamingResponse, JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from detector import VideoDetector
-from threading import Thread
+from threading import Thread, Lock
 import uuid
 import json, cv2, os, io
 import mysql.connector
@@ -12,6 +12,8 @@ import schedule
 
 app = FastAPI()
 video_detectors = {}
+detector_lock = Lock()
+camera_links = {}
 
 app.mount('/static', StaticFiles(directory='static'), name='static')
 
@@ -20,6 +22,7 @@ app.mount('/static', StaticFiles(directory='static'), name='static')
 @app.on_event('startup')
 def on_startup():
     createDB_and_tables()
+    load_camera_links()
     start_all_detectors()
     
     cleanup_thread = Thread(target=run_log_cleanup_scheduler, daemon=True)
@@ -55,6 +58,7 @@ def createDB_and_tables():
                 user_id INT,
                 camera_name VARCHAR(255) NOT NULL,
                 stream_url VARCHAR(1024) NOT NULL,
+                mode VARCHAR(20) DEFAULT 'default',
                        
                 FOREIGN KEY (user_id) REFERENCES users (id)
             )
@@ -68,6 +72,17 @@ def createDB_and_tables():
                 detection_threshold FLOAT DEFAULT 0.35,
                        
                 FOREIGN KEY (camera_id) REFERENCES cameras (id)
+            )
+        """)
+
+        # Create camera links table
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS camera_links (
+                source_camera_id VARCHAR(36) PRIMARY KEY,
+                target_camera_id VARCHAR(36) NOT NULL,
+                
+                FOREIGN KEY (source_camera_id) REFERENCES cameras (id) ON DELETE CASCADE,
+                FOREIGN KEY (target_camera_id) REFERENCES cameras (id) ON DELETE CASCADE
             )
         """)
 
@@ -344,6 +359,27 @@ def get_cameras(user_id: int):
     except mysql.connector.Error as err:
         return JSONResponse(status_code=500, content={'error': f'Database error: {err}'})
     
+@app.get('/get_camera_details/{camera_id}')
+def get_camera_details(camera_id: str, user_id: int):
+    if not verify_camera_ownership(camera_id, user_id):
+        return JSONResponse(status_code=403, content={'error': 'Permission denied.'})
+    
+    try:
+        conn = mysql.connector.connect(**DB_CONFIG)
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute("SELECT id, camera_name, mode FROM cameras WHERE id = %s", (camera_id,))
+        camera_details = cursor.fetchone()
+        cursor.close()
+        conn.close()
+
+        if camera_details:
+            return JSONResponse(content=camera_details)
+        else:
+            return JSONResponse(status_code=404, content={'error': 'Camera not found.'})
+    
+    except mysql.connector.Error as err:
+        return JSONResponse(status_code=500, content={'error': f'Database error: {err}'})
+    
 @app.post('/delete_camera/{camera_id}')
 async def delete_camera(camera_id: str, request: Request):
     data = await request.json()
@@ -369,6 +405,97 @@ async def delete_camera(camera_id: str, request: Request):
 
         cursor.close()
         conn.close()
+        return JSONResponse(content={'success': True})
+    
+    except mysql.connector.Error as err:
+        return JSONResponse(status_code=500, content={'success': False, 'error': f'Database error: {err}'})
+    
+# -- Camera Settings --
+    
+def handle_detection_event(source_id: str, event_type: str):
+    with detector_lock:
+        source_detector = video_detectors.get(source_id)
+        if not source_detector:
+            return
+        
+        if event_type == 'ENTRY':
+            source_detector.available_slots = max(0, source_detector.available_slots - 1)
+        elif event_type == 'EXIT' and source_detector.mode == 'default':
+            source_detector.available_slots = min(source_detector.total_spaces, source_detector.available_slots + 1)
+
+        target_id = camera_links.get(source_id)
+        if target_id:
+            target_detector = video_detectors.get(target_id)
+            if target_detector:
+                print(f"Link triggered: {source_id} ({event_type}) -> {target_id}")
+                if event_type == 'ENTRY':
+                    target_detector.available_slots = min(target_detector.total_spaces, target_detector.available_slots + 1)
+                elif event_type == 'EXIT':
+                    target_detector.available_slots = max(0, target_detector.available_slots - 1)
+
+def load_camera_links():
+    global camera_links
+    try:
+        conn = mysql.connector.connect(**DB_CONFIG)
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute("SELECT source_camera_id, target_camera_id FROM camera_links")
+        links = cursor.fetchall()
+        camera_links = {link['source_camera_id']: link['target_camera_id'] for link in links}
+
+        print(f'Loaded {len(camera_links)} camera links.')
+        cursor.close()
+        conn.close()
+    
+    except mysql.connector.Error as err:
+        print(f"Could not load camera links: {err}")
+
+@app.post('/link_cameras')
+async def link_cameras(request: Request):
+    data = await request.json()
+    source_id = data.get('source_id')
+    target_id = data.get('target_id')
+
+    if not source_id and not target_id:
+        return JSONResponse(status_code=400, content={'success': False, 'error': 'Source and target IDs are required.'})
+    
+    try:
+        conn = mysql.connector.connect(**DB_CONFIG)
+        cursor = conn.cursor()
+        query = """
+            INSERT INTO camera_links (source_camera_id, target_camera_id)
+            VALUES (%s, %s)
+            ON DUPLICATE KEY UPDATE target_camera_id = VALUES(target_camera_id)
+        """
+        cursor.execute(query, (source_id, target_id))
+        conn.commit()
+        cursor.close()
+        conn.close()
+
+        camera_links[source_id] = target_id
+        return JSONResponse(content={'success': True, 'message': f'Camera {source_id} now linked to {target_id}.'})
+    
+    except mysql.connector.Error as err:
+        return JSONResponse(status_code=500, content={'success': False, 'error': f'Database error: {err}'})
+    
+@app.post('/set_camera_mode/{camera_id}')
+async def set_camera_mode(camera_id: str, request: Request):
+    data = await request.json()
+    mode = data.get('mode')
+
+    if mode not in ['default', 'entry_only', 'exit_only']:
+        return JSONResponse(status_code=400, content={'success': False, 'error': 'Invalid mode specified.'})
+    
+    try:
+        conn = mysql.connector.connect(**DB_CONFIG)
+        cursor = conn.cursor()
+        cursor.execute("UPDATE cameras SET mode = %s WHERE id = %s", (mode, camera_id))
+        conn.commit()
+        cursor.close()
+        conn.close()
+
+        if camera_id in video_detectors:
+            video_detectors[camera_id].mode = mode
+            print(f"Updated mode for camera {camera_id} to {mode}")
         return JSONResponse(content={'success': True})
     
     except mysql.connector.Error as err:
@@ -484,7 +611,7 @@ async def save_settings(camera_id: str, request: Request):
             INSERT INTO camera_settings (camera_id, detection_threshold) 
             VALUES (%s, %s)
             ON DUPLICATE KEY UPDATE 
-                detection_threshold = VALUES(detection_threshold), 
+                detection_threshold = VALUES(detection_threshold)
         """
         cursor.execute(query, (camera_id, detection_threshold))
         conn.commit()

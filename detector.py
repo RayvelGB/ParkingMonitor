@@ -19,9 +19,11 @@ DB_CONFIG = {
 
 class VideoDetector:
     # -- Initialize Elements --
-    def __init__(self, rtsp_url, camera_id):
+    def __init__(self, rtsp_url, camera_id, mode='default', event_callback=None):
         self.rtsp_url = rtsp_url
         self.camera_id = camera_id
+        self.mode = mode
+        self.event_callback = event_callback
         
         self.raw_frame = None
         self.processed_frame = None
@@ -211,38 +213,36 @@ class VideoDetector:
 
             current_time = time.time()
             for idx, points in enumerate(self.parking_boxes):
-                entry = False
-                        
-                for bbox in boxes:
-                    rect = (bbox[0], bbox[1], bbox[2], bbox[3])
-                        
-                    if self.check_intersection(rect, points):
-                        entry = True
-                        break
+                entry = any(self.check_intersection((b[0], b[1], b[2], b[3]), points) for b in boxes)
 
-                previous_entry = self.slot_status[idx]['entry']
-                self.slot_status[idx]['entry'] = entry
-                    
+                previous_entry = self.slot_status[idx].get('entry', False)
                 zone_name = self.parking_boxes_data[idx].get('zone')
                 zone_prefix = f'{zone_name} - ' if zone_name else ''
                 
                 if not previous_entry and entry:
-                    log = f"[{time.strftime('%H:%M:%S')}] {zone_prefix}Slot {idx+1} ENTRY"
-                    self.available_slots = max(0, self.available_slots - 1)
-                    self.log_messages.append(log)
-                    self.save_logs_to_db(log)
+                    self.slot_status[idx]['entry'] = True
+                    if self.mode != 'exit_only':
+                        log = f"[{time.strftime('%H:%M:%S')}] {zone_prefix}Slot {idx+1} ENTRY"
+                        self.log_messages.append(log)
+                        self.save_logs_to_db(log)
+                        if self.event_callback:
+                            self.event_callback(self.camera_id, 'ENTRY')
+
+                elif not entry and previous_entry:
+                    self.slot_status[idx]['entry'] = False  
+                    if self.mode != 'entry_only':
+                        log = f"[{time.strftime('%H:%M:%S')}] {zone_prefix}Slot {idx+1} EXIT"
+                        self.log_messages.append(log)
+                        self.save_logs_to_db(log)
+                        if self.event_callback:
+                            self.event_callback(self.camera_id, 'EXIT')
                         
                 if len(self.log_messages) > 50: # Limit number of logs at 50 for better memory efficiency
                     self.log_messages.pop(0)
 
                 # -- Coloring of bouding boxes for visualization of occupancy and vacancy --
-                color = (0, 255, 0) # Green (Vacant)
-                thickness = 4
-
-                if entry:
-                    color = (0, 0, 255) # Red (Occupied)
-                    thickness = 2
-                    
+                color = (0, 255, 0) if not entry else (0, 0, 255)
+                thickness = 4 if not entry else 2
                 pts = np.array(points, np.int32).reshape((-1, 1, 2))
                 cv2.polylines(local_frame_copy, [pts], isClosed=True, color=color, thickness=thickness)
                 

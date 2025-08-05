@@ -102,6 +102,24 @@
                             <input id="detection-slider" type="range" min="0.1" max="0.9" step="0.05" value="0.35" class="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer">
                         </div>
 
+                        <div class="mb-4">
+                            <label class="block text-sm font-medium text-gray-300 mb-2">Camera Mode</label>
+                            <div class="space-y-2">
+                                <div class="flex items-center">
+                                    <input id="mode-default" name="camera-mode" type="radio" value="default" class="h-4 w-4 text-blue-600 bg-gray-700 border-gray-600 focus:ring-blue-500">
+                                    <label for="mode-default" class="ml-2 block text-sm text-gray-300">Default (Entry & Exit)</label>
+                                </div>
+                                <div class="flex items-center">
+                                    <input id="mode-entry" name="camera-mode" type="radio" value="entry_only" class="h-4 w-4 text-blue-600 bg-gray-700 border-gray-600 focus:ring-blue-500">
+                                    <label for="mode-entry" class="ml-2 block text-sm text-gray-300">Entry Only</label>
+                                </div>
+                                <div class="flex items-center">
+                                    <input id="mode-exit" name="camera-mode" type="radio" value="exit_only" class="h-4 w-4 text-blue-600 bg-gray-700 border-gray-600 focus:ring-blue-500">
+                                    <label for="mode-exit" class="ml-2 block text-sm text-gray-300">Exit Only</label>
+                                </div>
+                            </div>
+                        </div>
+
                         <button id="save-settings-btn" class="w-full bg-blue-600 hover:bg-blue-700 py-2 rounded-lg flex items-center justify-center transition">
                             Save Settings
                         </button>
@@ -246,20 +264,26 @@
             const loader = document.getElementById('loader');
             const videoFeed = document.getElementById('video-feed');
             const logTbody = document.getElementById('log-entries');
+
+            // --- Stats Elements ---
             const availableSpacesEl = document.getElementById('available-spaces');
             const totalSpacesEl = document.getElementById('total-spaces');
             const occupancyPercentEl = document.getElementById('occupancy-percent');
             const occupancyBarEl = document.getElementById('occupancy-bar');
-            const editBoundsBtn = document.getElementById('edit-bounds-btn');
-            const assignZonesBtn = document.getElementById('assign-zones-btn');
-            const deleteCamBtn = document.getElementById('delete-camera-btn');
             const currentTimeEl = document.getElementById('current-time');
             const cameraIdDisplayEl = document.getElementById('camera-id-display');
             const lastUpdatedEl = document.getElementById('last-updated');
             const streamStatusIndicator = document.getElementById('stream-status-indicator');
-             const prevCamBtn = document.getElementById('prev-camera-btn');
+            
+            // --- Buttons above feed ---
+            const editBoundsBtn = document.getElementById('edit-bounds-btn');
+            const assignZonesBtn = document.getElementById('assign-zones-btn');
+            const deleteCamBtn = document.getElementById('delete-camera-btn');
+            const prevCamBtn = document.getElementById('prev-camera-btn');
             const nextCamBtn = document.getElementById('next-camera-btn');
             const camNameDisplay = document.getElementById('camera-name-display');
+
+            // --- User Popup Elements ---
             const userMenuButton = document.getElementById('user-menu-button');
             const userMenu = document.getElementById('user-menu');
             const userInitial = document.getElementById('user-initial');
@@ -268,10 +292,14 @@
             const changeAccountBtn = document.getElementById('change-account-btn');
             const logoutBtn = document.getElementById('logout-btn');
 
+            // --- Settings Elements ---
             const settingsMenuButton = document.getElementById('settings-menu-button');
             const settingsMenu = document.getElementById('settings-menu');
             const detectionSlider = document.getElementById('detection-slider');
             const detectionValue = document.getElementById('detection-value');
+            const modeDefaultRadio = document.getElementById('mode-default');
+            const modeEntryRadio = document.getElementById('mode-entry');
+            const modeExitRadio = document.getElementById('mode-exit');
             const saveSettingsBtn = document.getElementById('save-settings-btn');
             const settingsStatus = document.getElementById('settings-status');
 
@@ -394,7 +422,7 @@
             }
 
             function fetchLogs() {
-                fetch(`/get_logs/${camera_id}`)
+                fetch(`/get_logs/${currentCameraId}`)
                     .then(response => response.json())
                     .then(data => {
                         if (!data || !Array.isArray(data.logs)) {
@@ -436,6 +464,14 @@
                                         const zone = match[2] ? `${match[2]} - ` : '';
                                         slotText = camNameDisplay.textContent;
                                         details = `Vehicle entry detected at ${match[1]}`;
+                                    }
+                                } else if (msg.includes('EXIT')) {
+                                    eventType = 'Exit'; eventIcon = 'fa-car-side'; iconColor = 'text-red-400';
+                                    const match = msg.match(/\[(.*?)\] (?:(.*?) - )?Slot (\d+) EXIT/);
+                                    if (match) {
+                                        const zone = match[2] ? `${match[2]} - ` : '';
+                                        slotText = camNameDisplay.textContent;
+                                        details = `Vehicle exited at ${match[1]}`;
                                     }
                                 }
 
@@ -484,45 +520,81 @@
             });
 
 
-            function loadSettings() {
-                if (!camera_id) return;
-                fetch(`/get_settings/${camera_id}?user_id=${user.user_id}`)
+            function loadSettings(camId) {
+                if (!camId) return;
+                fetch(`/get_settings/${camId}?user_id=${user.user_id}`)
                     .then(res => res.json())
                     .then(settings => {
                         detectionSlider.value = settings.detection_threshold;
                         detectionValue.textContent = parseFloat(settings.detection_threshold).toFixed(2);
                     });
+                
+                fetch(`/get_camera_details/${camId}?user_id=${user.user_id}`)
+                    .then(res => res.json())
+                    .then(details => {
+                        if (details.mode === 'entry_only') {
+                            modeEntryRadio.checked = true;
+                        } else if (details.mode === 'exit_only') {
+                            modeExitRadio.checked = true;
+                        } else {
+                            modeDefaultRadio.checked = true;
+                        }
+                    });
             }
 
             saveSettingsBtn.addEventListener('click', () => {
+                if (!currentCameraId) {
+                    return;
+                }
                 settingsStatus.textContent = 'Saving...';
-                const settings = {
-                    user_id: user.user_id,
-                    detection_threshold: parseFloat(detectionSlider.value)
-                };
-                fetch(`/save_settings/${camera_id}`, {
+
+                let selectedMode = 'default';
+                if (modeEntryRadio.checked) {
+                    selectedMode = 'entry_only';
+                } else if (modeExitRadio.checked) {
+                    selectedMode = 'exit_only';
+                }
+
+                const saveThresholdPromise = fetch(`/save_settings/${currentCameraId}`, {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify(settings)
-                })
-                .then(res => res.json())
-                .then(data => {
-                    if(data.success) {
-                        settingsStatus.textContent = 'Settings saved successfully!';
-                    } else {
-                        settingsStatus.textContent = 'Error saving settings.';
-                    }
-                    setTimeout(() => settingsStatus.textContent = '', 2000);
-                });
+                    body: JSON.stringify({
+                        user_id: user.user_id,
+                        detection_threshold: parseFloat(detectionSlider.value)
+                    })
+                }).then(res => res.json());
+
+                const saveModePromise = fetch(`/set_camera_mode/${currentCameraId}`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        user_id: user.user_id,
+                        mode: selectedMode
+                    })
+                }).then(res => res.json());
+
+                Promise.all([saveThresholdPromise, saveModePromise])
+                    .then(([thresholdResult, modeResult]) => {
+                        if (thresholdResult.success && modeResult.success) {
+                            settingsStatus.textContent = 'Settings saved successfully!';
+                        } else {
+                            settingsStatus.textContent = 'Error saving settings.';
+                        }
+                        setTimeout(() => settingsStatus.textContent = '', 2000);
+                    })
+                    .catch(err => {
+                        console.error('Save error:', err);
+                        settingsStatus.textContent = 'Error connecting to server.';
+                    });
             });
 
             deleteCamBtn.addEventListener('click', () => {
-                if (!camera_id) return;
+                if (!currentCameraId) return;
 
                 if (confirm('Are you sure you want to permanently delete this camera and all its data? This action cannot be undone.')) {
                     stopStream();
 
-                    fetch(`/delete_camera/${camera_id}`, {
+                    fetch(`/delete_camera/${currentCameraId}`, {
                         method: 'POST',
                         headers: {'Content-Type': 'application/json'},
                         body: JSON.stringify({ user_id: user.user_id })
@@ -547,14 +619,14 @@
             fetch('/start_stream', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ camera_id: camera_id, user_id: user.user_id })
+                body: JSON.stringify({ camera_id: currentCameraId, user_id: user.user_id })
             })
             .then(response => response.json())
             .then(result => {
                 if (result.success) {
                     loader.classList.add('hidden');
                     videoFeed.classList.remove('hidden');
-                    videoFeed.src = `/video_feed/${camera_id}`;
+                    videoFeed.src = `/video_feed/${currentCameraId}`;
                     streamStatusIndicator.innerHTML = '<div class="w-2 h-2 bg-green-500 rounded-full mr-2 live-indicator"></div><span class="font-medium text-green-400">Online</span>';
                 } else {
                     loader.innerHTML = `<div class="text-center"><i class="fas fa-exclamation-triangle text-red-500 text-5xl mb-4"></i><p class="text-gray-400">Failed to start stream: ${result.error || 'Permission Denied'}</p></div>`;
@@ -564,14 +636,14 @@
 
             // --- Event Listeners ---
             editBoundsBtn.addEventListener('click', () => {
-                if (camera_id) {
-                    window.location.href = `/picker.html?camera_id=${camera_id}`;
+                if (currentCameraId) {
+                    window.location.href = `/picker.html?camera_id=${currentCameraId}`;
                 }
             });
 
             assignZonesBtn.addEventListener('click', () => {
-                if (camera_id) {
-                    window.location.href = `/zone_picker.html?camera_id=${camera_id}`;
+                if (currentCameraId) {
+                    window.location.href = `/zone_picker.html?camera_id=${currentCameraId}`;
                 }
             });
 
