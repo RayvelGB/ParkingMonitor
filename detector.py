@@ -8,6 +8,7 @@ import json
 from shapely import Polygon, box
 import time
 import mysql.connector
+from threading import Thread, Lock
 
 DB_CONFIG = {
     'host': 'localhost',
@@ -21,8 +22,17 @@ class VideoDetector:
     def __init__(self, rtsp_url, camera_id):
         self.rtsp_url = rtsp_url
         self.camera_id = camera_id
-        self.frame = None
+        
+        self.raw_frame = None
+        self.processed_frame = None
+        self.frame_lock = Lock()
         self.running = True
+
+        if '?rtsp_transport' not in self.rtsp_url:
+            self.rtsp_url += '?rtsp_transport=tcp'
+        self.cap = cv2.VideoCapture(self.rtsp_url, cv2.CAP_FFMPEG)
+        self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 0)
+
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         self.model = self.load_model()
         
@@ -32,11 +42,32 @@ class VideoDetector:
         self.slot_status = {}
         self.log_messages = []
         self.available_slots = 0
-
         self.detection_threshold = 0.35
 
         self.reload_configuration()
         self.log_messages = self.load_logs_from_db()
+
+        self.reader_thread = Thread(target=self._frame_reader, daemon=True)
+        self.reader_thread.start()
+
+    def _frame_reader(self):
+        print(f"[{time.strftime('%H:%M:%S')}] Cam {self.camera_id}: Starting frame reader thread.")
+        while self.running:
+            if not self.cap.isOpened():
+                print(f"[{time.strftime('%H:%M:%S')}] Cam {self.camera_id}: Stream disconnected. Reconnecting...")
+                self.cap.release()
+                self.cap = cv2.VideoCapture(self.rtsp_url, cv2.CAP_FFMPEG)
+                self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 0)
+                time.sleep(5)
+                continue
+            
+            success, frame = self.cap.read()
+            if success:
+                with self.frame_lock:
+                    self.raw_frame = frame
+            else:
+                self.cap.release()
+        print(f"[{time.strftime('%H:%M:%S')}] Cam {self.camera_id}: Frame reader thread stopped.")
 
     # -- Reload configuration without refresh --
     def reload_configuration(self):
@@ -160,91 +191,86 @@ class VideoDetector:
 
     # -- Run the detection --
     def run(self):
-        isConnected = False
-        if '?rtsp_transport=' not in self.rtsp_url: # Quality control to force tcp for better performance
-            self.rtsp_url += '?rtsp_transport=tcp'
+        print(f"[{time.strftime('%H:%M:%S')}] Cam {self.camera_id}: Starting processing loop.")
 
         while self.running:
-            cap = cv2.VideoCapture(self.rtsp_url, cv2.CAP_FFMPEG)
-            cap.set(cv2.CAP_PROP_BUFFERSIZE, 0) # Force FFMPEG and reduce buffer size for better performance
-
-            if not cap.isOpened():
-                if isConnected:
-                    print(f"[{time.strftime('%H:%M:%S')}] Error: Could not open video stream. Retrying in 5 seconds...")
-                    isConnected = False
-                continue
+            local_frame_copy = None
             
-            if not isConnected:
-                print(f"[{time.strftime('%H:%M:%S')}] Successfully connected to video stream.")
-                isConnected = True
+            with self.frame_lock:
+                if self.raw_frame is not None:
+                    local_frame_copy = self.raw_frame.copy()
 
-            while self.running:
-                success, frame = cap.read()
-                # Automatically reconnect when timed out
-                if not success:
-                    if isConnected:
-                        print(f"[{time.strftime('%H:%M:%S')}] Connection lost. Reconnecting...")
-                        isConnected = False
-                    break # Break out of loop to restart
+            if local_frame_copy is None:
+                time.sleep(0.05)
+                continue
 
-                img_tensor = self.img_transform(frame)
-                boxes, labels, scores = self.inference(img_tensor)
-                car_indices = np.isin(labels, [4, 5, 6, 9]) # Class IDs for car, truck, etc.
-                boxes = boxes[car_indices]
+            img_tensor = self.img_transform(local_frame_copy)
+            boxes, labels, scores = self.inference(img_tensor)
+            car_indices = np.isin(labels, [4, 5, 6, 9]) # Class IDs for car, truck, etc.
+            boxes = boxes[car_indices]
 
-                current_time = time.time()
-                for idx, points in enumerate(self.parking_boxes):
-                    entry = False
+            current_time = time.time()
+            for idx, points in enumerate(self.parking_boxes):
+                entry = False
                         
-                    for bbox in boxes:
-                        rect = (bbox[0], bbox[1], bbox[2], bbox[3])
+                for bbox in boxes:
+                    rect = (bbox[0], bbox[1], bbox[2], bbox[3])
                         
-                        if self.check_intersection(rect, points):
-                            entry = True
-                            break
+                    if self.check_intersection(rect, points):
+                        entry = True
+                        break
 
-                    previous_entry = self.slot_status[idx]['entry']
-                    self.slot_status[idx]['entry'] = entry
+                previous_entry = self.slot_status[idx]['entry']
+                self.slot_status[idx]['entry'] = entry
                     
-                    zone_name = self.parking_boxes_data[idx].get('zone')
-                    zone_prefix = f'{zone_name} - ' if zone_name else ''
+                zone_name = self.parking_boxes_data[idx].get('zone')
+                zone_prefix = f'{zone_name} - ' if zone_name else ''
                 
-                    if not previous_entry and entry:
-                        log = f"[{time.strftime('%H:%M:%S')}] {zone_prefix}Slot {idx+1} ENTRY"
-                        self.available_slots = max(0, self.available_slots - 1)
-                        self.log_messages.append(log)
-                        self.save_logs_to_db(log)
+                if not previous_entry and entry:
+                    log = f"[{time.strftime('%H:%M:%S')}] {zone_prefix}Slot {idx+1} ENTRY"
+                    self.available_slots = max(0, self.available_slots - 1)
+                    self.log_messages.append(log)
+                    self.save_logs_to_db(log)
                         
-                    if len(self.log_messages) > 50: # Limit number of logs at 50 for better memory efficiency
-                        self.log_messages.pop(0)
+                if len(self.log_messages) > 50: # Limit number of logs at 50 for better memory efficiency
+                    self.log_messages.pop(0)
 
-                    # -- Coloring of bouding boxes for visualization of occupancy and vacancy --
-                    color = (0, 255, 0) # Green (Vacant)
-                    thickness = 4
+                # -- Coloring of bouding boxes for visualization of occupancy and vacancy --
+                color = (0, 255, 0) # Green (Vacant)
+                thickness = 4
 
-                    if entry:
-                        color = (0, 0, 255) # Red (Occupied)
-                        thickness = 2
+                if entry:
+                    color = (0, 0, 255) # Red (Occupied)
+                    thickness = 2
                     
-                    pts = np.array(points, np.int32).reshape((-1, 1, 2))
-                    cv2.polylines(frame, [pts], isClosed=True, color=color, thickness=thickness)
+                pts = np.array(points, np.int32).reshape((-1, 1, 2))
+                cv2.polylines(local_frame_copy, [pts], isClosed=True, color=color, thickness=thickness)
                 
-                self.frame = frame
+            with self.frame_lock:
+                self.processed_frame = local_frame_copy
 
-            cap.release()
-            time.sleep(5)
+            time.sleep(0.01)
     
     # -- Generate video feed --
     def generate(self):
         try:
-            while True:
-                if self.frame is None:
-                    time.sleep(0.03) # Interval of .03 seconds if failed
+            frame_to_send = None
+            while self.running:
+                with self.frame_lock:
+                    if self.processed_frame is not None:
+                        frame_to_send = self.processed_frame.copy()
+                
+                if frame_to_send is None:
+                    time.sleep(0.3)
                     continue
-                ret, buffer = cv2.imencode('.jpg', self.frame)
+
+                ret, buffer = cv2.imencode('.jpg', frame_to_send)
+                if not ret:
+                    continue
+
                 frame_bytes = buffer.tobytes()
                 yield(b'--frame\r\n'
-                    b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n') # Yield feed
+                      b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n') # Yield feed
         except GeneratorExit:
             pass
         finally:
@@ -252,5 +278,8 @@ class VideoDetector:
     
     # -- Stop video feed     --
     def stop(self):
-        print('[INFO] Client disconnected. Stopping stream...')
+        print(f'[INFO] Stopping all threads for camera {self.camera_id}...')
         self.running = False
+        if self.reader_thread.is_alive():
+            self.reader_thread.join()
+        self.cap.release()

@@ -304,8 +304,8 @@
             updateTime();
 
             function stopStream() {
-                if (camera_id) {
-                    navigator.sendBeacon('/stop_stream', JSON.stringify({ camera_id }));
+                if (currentCameraId) {
+                    navigator.sendBeacon('/stop_all_streams', JSON.stringify({}));
                 }
             }
 
@@ -342,6 +342,7 @@
                 
                 camNameDisplay.textContent = newCamera.name;
                 camNameDisplay.title = newCamera.name;
+                cameraIdDisplayEl.textContent = currentCameraId;
                 loader.classList.add('hidden');
                 videoFeed.classList.remove('hidden');
                 streamStatusIndicator.innerHTML = `<div class="w-2 h-2 bg-green-500 rounded-full mr-2 live-indicator"></div><span class="font-medium text-green-400">Online</span>`;
@@ -543,16 +544,6 @@
             });
 
             // --- Main Execution ---
-            initializePage();
-
-            if (!camera_id) {
-                loader.innerHTML = '<div class="text-center"><i class="fas fa-video-slash text-gray-500 text-5xl mb-4"></i><p class="text-gray-400">Select a camera to begin.</p></div>';
-                populateCameraSelector();
-                return;
-            }
-            
-            cameraIdDisplayEl.textContent = camera_id;
-
             fetch('/start_stream', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -588,10 +579,11 @@
             nextCamBtn.addEventListener('click', () => switchCamera(currentCameraIndex + 1));
 
             document.addEventListener('visibilitychange', () => {
-                if (document.visibilityState === 'visible' && camera_id) {
-                    videoFeed.src = `/video_feed/${camera_id}?t=${new Date().getTime()}`;
+                if (document.visibilityState === 'visible' && currentCameraId) {
+                    videoFeed.src = `/video_feed/${currentCameraId}?t=${new Date().getTime()}`;
                 }
             });
+            initializePage();
         });
     </script>
 </body>

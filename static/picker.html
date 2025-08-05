@@ -143,7 +143,7 @@
 
             function stopStream() {
                 if (camera_id) {
-                    navigator.sendBeacon('/stop_stream', JSON.stringify({ camera_id }));
+                    navigator.sendBeacon('/stop_all_streams', JSON.stringify({}));
                 }
             }
 

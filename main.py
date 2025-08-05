@@ -15,21 +15,23 @@ video_detectors = {}
 
 app.mount('/static', StaticFiles(directory='static'), name='static')
 
+# -- STARTUP ENDPOINT --
+
+@app.on_event('startup')
+def on_startup():
+    createDB_and_tables()
+    start_all_detectors()
+    
+    cleanup_thread = Thread(target=run_log_cleanup_scheduler, daemon=True)
+    cleanup_thread.start()
+
+# -- Database Configuration --
 DB_CONFIG = {
     'host':'localhost',
     'user': 'root',
     'password': '',
     'database': 'entry_db'
 }
-
-# -- Initialize password hash --
-pwd_context = CryptContext(schemes=['bcrypt'], deprecated='auto')
-
-def verify_password(plain_password, hashed_password):
-    return pwd_context.verify(plain_password, hashed_password)
-
-def get_password_hash(password):
-    return pwd_context.hash(password)
 
 # -- Setup database --
 def createDB_and_tables():
@@ -103,37 +105,7 @@ def createDB_and_tables():
     except mysql.connector.Error as err:
         print(f'Error creating database and tables: {err}')
 
-def verify_camera_ownership(camera_id: str, user_id: int) -> bool:
-    try:
-        conn = mysql.connector.connect(**DB_CONFIG)
-        cursor = conn.cursor()
-        cursor.execute("SELECT id FROM cameras WHERE id = %s AND user_id = %s", (camera_id, user_id))
-        result = cursor.fetchone()
-        cursor.close()
-        conn.close()
-        return result is not None
-    except mysql.connector.Error:
-        return False
-    
-def delete_old_logs():
-    try:
-        conn = mysql.connector.connect(**DB_CONFIG)
-        cursor = conn.cursor()
-        query = "DELETE FROM logs WHERE timestamp > NOW() - INTERVAL 30 DAYS"
-
-        cursor.execute(query)
-        conn.commit()
-        print(f"[{time.strftime('%H:%M:%S')}] Performed daily log cleanup. {cursor.rowcount} old logs deleted.")
-        cursor.close()
-        conn.close()
-    except mysql.connector.Error as err:
-        print(f"Error during log cleanup: {err}")
-
-def run_log_cleanup_scheduler():
-    schedule.every().day.at('01:00').do(delete_old_logs)
-    while(True):
-        schedule.run_pending()
-        time.sleep(60)
+# -- Stream Endpoints --
 
 def start_all_detectors():
     print('Starting detectors for all registered cameras...')
@@ -160,15 +132,74 @@ def start_all_detectors():
     except mysql.connector.Error as err:
         print(f'Database error during startup: {err}')
 
-@app.on_event('startup')
-def on_startup():
-    createDB_and_tables()
-    start_all_detectors()
+def stop_all_detectors():
+    print('Stopping detectors for all registered cameras...')
+    try:
+        conn = mysql.connector.connect(**DB_CONFIG)
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute("SELECT id, stream_url FROM cameras")
+        all_cameras = cursor.fetchall()
+        cursor.close()
+        conn.close()
+
+        for camera in all_cameras:
+            camera_id = camera['id']
+
+            if camera_id in video_detectors:
+                video_detectors[camera_id].stop()
+                del video_detectors[camera_id]
+        print('All detectors have been stopped.')
+
+    except mysql.connector.Error as err:
+        print(f'Database error during startup: {err}')
+
+@app.post('/start_stream')
+async def start_stream(request: Request):
+    data = await request.json()
+    camera_id = data.get('camera_id')
+    user_id = data.get('user_id')
     
-    cleanup_thread = Thread(target=run_log_cleanup_scheduler, daemon=True)
-    cleanup_thread.start()
+    if camera_id in video_detectors and video_detectors[camera_id].running:
+        print(f"Stream for camera {camera_id} is already running. No action needed.")
+        return JSONResponse({'success': True, 'message': 'Stream already running.'})
+    
+    try:
+        conn = mysql.connector.connect(**DB_CONFIG)
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute("SELECT stream_url FROM cameras WHERE id = %s", (camera_id,))
+        camera = cursor.fetchone()
+        cursor.close()
+        conn.close()
+        if not camera:
+            return JSONResponse(status_code=404, content={'error': 'Camera not registered.'})
+        
+        if not user_id or not verify_camera_ownership(camera_id, user_id):
+            return JSONResponse(status_code=403, content={'success': False, 'error': 'Permission denied.'})
+        
+        rtsp_url = camera['stream_url']
+        detector = VideoDetector(rtsp_url, camera_id)
+        video_detectors[camera_id] = detector
+        t = Thread(target=detector.run, daemon=True)
+        t.start()
+        return JSONResponse({'success': True})
+    except mysql.connector.Error as err:
+        return JSONResponse(status_code=500, content={'error': f'Database error: {err}'})
+
+@app.get('/video_feed/{camera_id}')
+def video_feed(camera_id: str):
+    if camera_id not in video_detectors:
+        return JSONResponse(status_code=404, content={'error': 'Camera not found.'})
+    
+    detector = video_detectors[camera_id]
+    return StreamingResponse(detector.generate(), media_type='multipart/x-mixed-replace; boundary=frame')
+
+@app.post('/stop_all_streams')
+def stop_stream():
+    stop_all_detectors()
+    return JSONResponse(content={'success': True})
 
 # -- Serve HTML Pages --
+
 @app.get('/')
 def serve_login_page():
     return FileResponse('static/auth_user.html')
@@ -191,6 +222,27 @@ def serve_stream_page():
 
 
 # -- Authentication Endpoints --
+
+# -- Initialize password hash --
+pwd_context = CryptContext(schemes=['bcrypt'], deprecated='auto')
+
+def verify_password(plain_password, hashed_password):
+    return pwd_context.verify(plain_password, hashed_password)
+
+def get_password_hash(password):
+    return pwd_context.hash(password)
+
+def verify_camera_ownership(camera_id: str, user_id: int) -> bool:
+    try:
+        conn = mysql.connector.connect(**DB_CONFIG)
+        cursor = conn.cursor()
+        cursor.execute("SELECT id FROM cameras WHERE id = %s AND user_id = %s", (camera_id, user_id))
+        result = cursor.fetchone()
+        cursor.close()
+        conn.close()
+        return result is not None
+    except mysql.connector.Error:
+        return False
 
 @app.post('/register')
 async def register_user(request: Request):
@@ -252,6 +304,7 @@ async def login_user(request: Request):
         return JSONResponse(status_code=500, content={'success': False, 'error': f'Database error {err}'})
 
 # -- Camera Management --
+
 @app.post('/register_camera')
 async def register_camera(request: Request):
     data = await request.json()
@@ -321,7 +374,8 @@ async def delete_camera(camera_id: str, request: Request):
     except mysql.connector.Error as err:
         return JSONResponse(status_code=500, content={'success': False, 'error': f'Database error: {err}'})
 
-# -- Bounding Box and Stream Endpoints --
+# -- Bounding Box Endpoints --
+
 @app.get('/capture_frame/{camera_id}')
 def capture_frame(camera_id: str, user_id: int):
     if not verify_camera_ownership(camera_id, user_id):
@@ -411,6 +465,8 @@ def get_boxes(camera_id: str, user_id: int):
     except mysql.connector.Error as err:
         return JSONResponse(status_code=500, content={'error': f'Database error: {err}'})
     
+# -- Detection Settings Endpoints --
+    
 @app.post('/save_settings/{camera_id}')
 async def save_settings(camera_id: str, request: Request):
     data = await request.json()
@@ -466,37 +522,7 @@ def get_settings(camera_id: str, user_id: int):
     except mysql.connector.Error as err:
         return JSONResponse(status_code=500, content={'error': f'Database error: {err}'})
 
-@app.post('/start_stream')
-async def start_stream(request: Request):
-    data = await request.json()
-    camera_id = data.get('camera_id')
-    user_id = data.get('user_id')
-    
-    if camera_id in video_detectors and video_detectors[camera_id].running:
-        print(f"Stream for camera {camera_id} is already running. No action needed.")
-        return JSONResponse({'success': True, 'message': 'Stream already running.'})
-    
-    try:
-        conn = mysql.connector.connect(**DB_CONFIG)
-        cursor = conn.cursor(dictionary=True)
-        cursor.execute("SELECT stream_url FROM cameras WHERE id = %s", (camera_id,))
-        camera = cursor.fetchone()
-        cursor.close()
-        conn.close()
-        if not camera:
-            return JSONResponse(status_code=404, content={'error': 'Camera not registered.'})
-        
-        if not user_id or not verify_camera_ownership(camera_id, user_id):
-            return JSONResponse(status_code=403, content={'success': False, 'error': 'Permission denied.'})
-        
-        rtsp_url = camera['stream_url']
-        detector = VideoDetector(rtsp_url, camera_id)
-        video_detectors[camera_id] = detector
-        t = Thread(target=detector.run, daemon=True)
-        t.start()
-        return JSONResponse({'success': True})
-    except mysql.connector.Error as err:
-        return JSONResponse(status_code=500, content={'error': f'Database error: {err}'})
+# -- Logging and Information Display Endpoints --
 
 @app.get('/get_logs/{camera_id}')
 def get_logs(camera_id: str):
@@ -505,24 +531,35 @@ def get_logs(camera_id: str):
     
     detector = video_detectors[camera_id]
     logs = detector.log_messages[-100:]
-    available_slots = detector.available_slots
-    total_spaces = detector.total_spaces
+    total_spaces, available_slots = get_aggregate_stats()
     return JSONResponse(content={'logs': logs, 'available_slots': available_slots, 'total_spaces': total_spaces})
 
-@app.get('/video_feed/{camera_id}')
-def video_feed(camera_id: str):
-    if camera_id not in video_detectors:
-        return JSONResponse(status_code=404, content={'error': 'Camera not found.'})
-    
-    detector = video_detectors[camera_id]
-    return StreamingResponse(detector.generate(), media_type='multipart/x-mixed-replace; boundary=frame')
+def get_aggregate_stats():
+    total_spaces_all = 0
+    total_available_spaces = 0
 
-@app.post('/stop_stream')
-async def stop_stream(request: Request):
-    data = await request.json()
-    camera_id = data.get('camera_id')
-    if camera_id in video_detectors:
-        video_detectors[camera_id].stop()
-        del video_detectors[camera_id]
-        return JSONResponse(content={'success': True})
-    return JSONResponse(content={'success': False, 'error': 'Camera not found.'})
+    for camera_id in video_detectors:
+        total_spaces_all += video_detectors[camera_id].total_spaces
+        total_available_spaces += video_detectors[camera_id].available_slots
+
+    return total_spaces_all, total_available_spaces
+
+def delete_old_logs():
+    try:
+        conn = mysql.connector.connect(**DB_CONFIG)
+        cursor = conn.cursor()
+        query = "DELETE FROM logs WHERE timestamp > NOW() - INTERVAL 30 DAYS"
+
+        cursor.execute(query)
+        conn.commit()
+        print(f"[{time.strftime('%H:%M:%S')}] Performed daily log cleanup. {cursor.rowcount} old logs deleted.")
+        cursor.close()
+        conn.close()
+    except mysql.connector.Error as err:
+        print(f"Error during log cleanup: {err}")
+
+def run_log_cleanup_scheduler():
+    schedule.every().day.at('01:00').do(delete_old_logs)
+    while(True):
+        schedule.run_pending()
+        time.sleep(60)
