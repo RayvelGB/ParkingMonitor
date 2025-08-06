@@ -58,7 +58,7 @@ def createDB_and_tables():
                 user_id INT,
                 camera_name VARCHAR(255) NOT NULL,
                 stream_url VARCHAR(1024) NOT NULL,
-                mode VARCHAR(20) DEFAULT 'increment_self',
+                mode VARCHAR(101) DEFAULT 'increment_self',
                        
                 FOREIGN KEY (user_id) REFERENCES users (id)
             )
@@ -394,22 +394,24 @@ def handle_crossing_event(source_id: str, event_type: str):
 
         # Mode 1: Increment Self (Exit Only Camera)
         if mode == 'increment_self' and event_type == 'EXIT':
-            source_detector.available_slots = min(source_detector.total_spaces, source_detector.available_slots + 1)
+            source_detector.available_slots = source_detector.available_slots + 1
         
         # Mode 2: Decrement Self (Entry Only Camera)
         elif mode == 'decrement_self' and event_type == 'ENTRY':
-            source_detector.available_slots = max(0, source_detector.available_slots - 1)
+            source_detector.available_slots = source_detector.available_slots - 1
         
         # Mode 3: Add a space for this camera AND erase one from a linked camera
         elif mode == 'increment_self_decrement_target':
             if event_type == 'ENTRY':
-                source_detector.available_slots = min(source_detector.total_spaces, source_detector.available_slots + 1)
+                # source_detector.available_slots = source_detector.available_slots + 1
                 target_id = camera_links.get(source_id)
                 if target_id:
                     target_detector = video_detectors.get(target_id)
                     if target_detector:
                         print(f"Link triggered: {source_id} -> {target_id}")
-                        target_detector.available_slots = max(0, target_detector.available_slots - 1)
+                        target_detector.available_slots = target_detector.available_slots - 1
+                else:
+                    print('Target camera not found.')
 
 def load_camera_links():
     global camera_links

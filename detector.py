@@ -216,9 +216,10 @@ class VideoDetector:
                 
                 # Event fires only on the frame the state changes
                 if is_occupied_now and not previous_state:
+                    if idx not in self.slot_status: self.slot_status[idx] = {}
+                    self.slot_status[idx]['occupied'] = True
+
                     if self.mode != 'increment_self':
-                        if idx not in self.slot_status: self.slot_status[idx] = {}
-                        self.slot_status[idx]['occupied'] = True
                         log = f"[{time.strftime('%H:%M:%S')}] Cam {self.camera_id} - Box {idx+1} CROSSED (ENTRY)"
                         self.log_messages.append(log)
                         self.save_logs_to_db(log)
@@ -226,9 +227,10 @@ class VideoDetector:
                             self.event_callback(self.camera_id, 'ENTRY')
 
                 elif not is_occupied_now and previous_state:
+                    if idx not in self.slot_status: self.slot_status[idx] = {}
+                    self.slot_status[idx]['occupied'] = False
+                    
                     if self.mode != 'decrement_self':
-                        if idx not in self.slot_status: self.slot_status[idx] = {}
-                        self.slot_status[idx]['occupied'] = False
                         log = f"[{time.strftime('%H:%M:%S')}] Cam {self.camera_id} - Box {idx+1} CLEARED (EXIT)"
                         self.log_messages.append(log)
                         self.save_logs_to_db(log)
