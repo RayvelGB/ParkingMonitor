@@ -459,17 +459,17 @@
 
                                 if (msg.includes('ENTRY')) {
                                     eventType = 'Entry'; eventIcon = 'fa-car'; iconColor = 'text-green-400';
-                                    const match = msg.match(/\[(.*?)\] Cam (.*?) - Box (\d+) CROSSED \(ENTRY\)/);
+                                    const match = msg.match(/\[(.*?)\] (.*?) \((ENTRY)\)/);
                                     if (match) {
-                                        slotText = camNameDisplay.textContent;
+                                        slotText = match[2];
                                         details = `Vehicle entry detected at ${match[1]}`;
                                     }
                                 } else if (msg.includes('EXIT')) {
                                     eventType = 'Exit'; eventIcon = 'fa-car-side'; iconColor = 'text-red-400';
-                                    const match = msg.match(/\[(.*?)\] Cam (.*?) - Box (\d+) CLEARED \(EXIT\)/);
+                                    const match = msg.match(/\[(.*?)\] (.*?) \((EXIT)\)/);
 
                                     if (match) {
-                                        slotText = camNameDisplay.textContent;
+                                        slotText = match[2];
                                         details = `Vehicle exited at ${match[1]}`;
                                     }
                                 }

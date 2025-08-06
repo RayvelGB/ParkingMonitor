@@ -22,8 +22,9 @@ class VideoDetector:
     def __init__(self, rtsp_url, camera_id, event_callback=None):
         self.rtsp_url = rtsp_url
         self.camera_id = camera_id
+        self.camera_name = 'Unnamed'
         self.event_callback = event_callback
-        self.mode = 'default'  # This will be correctly set by main.py
+        self.mode = 'default'
         
         self.raw_frame = None
         self.processed_frame = None
@@ -177,19 +178,6 @@ class VideoDetector:
         except mysql.connector.Error as err:
             print(f"Error loading logs from DB: {err}")
             return []
-        
-    # -- Save Logs into Database --
-    def save_logs_to_db(self, log_message):
-        try:
-            conn = mysql.connector.connect(**DB_CONFIG)
-            cursor = conn.cursor()
-            query = "INSERT INTO logs (camera_id, message) VALUES (%s, %s)"
-            cursor.execute(query, (self.camera_id, log_message))
-            conn.commit()
-            cursor.close()
-            conn.close()
-        except mysql.connector.Error as err:
-            print(f"Error saving log to DB: {err}")
 
     # -- Run the detection --
     def run(self):
@@ -220,20 +208,14 @@ class VideoDetector:
                     self.slot_status[idx]['occupied'] = True
 
                     if self.mode != 'increment_self':
-                        log = f"[{time.strftime('%H:%M:%S')}] Cam {self.camera_id} - Box {idx+1} CROSSED (ENTRY)"
-                        self.log_messages.append(log)
-                        self.save_logs_to_db(log)
                         if self.event_callback:
                             self.event_callback(self.camera_id, 'ENTRY')
 
                 elif not is_occupied_now and previous_state:
                     if idx not in self.slot_status: self.slot_status[idx] = {}
                     self.slot_status[idx]['occupied'] = False
-                    
+
                     if self.mode != 'decrement_self':
-                        log = f"[{time.strftime('%H:%M:%S')}] Cam {self.camera_id} - Box {idx+1} CLEARED (EXIT)"
-                        self.log_messages.append(log)
-                        self.save_logs_to_db(log)
                         if self.event_callback:
                             self.event_callback(self.camera_id, 'EXIT')
 

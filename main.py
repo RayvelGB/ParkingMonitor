@@ -127,13 +127,13 @@ def start_all_detectors():
     try:
         conn = mysql.connector.connect(**DB_CONFIG)
         cursor = conn.cursor(dictionary=True)
-        cursor.execute("SELECT id, stream_url, mode FROM cameras")
+        cursor.execute("SELECT id, stream_url, mode, camera_name FROM cameras")
         all_cameras = cursor.fetchall()
         cursor.close()
         conn.close()
 
         for camera in all_cameras:
-            start_single_detector(camera['id'], camera['stream_url'], camera['mode'])
+            start_single_detector(camera['id'], camera['stream_url'], camera['mode'], camera['camera_name'])
         print(f'Completed startup. {len(video_detectors)} detectors are running.')
 
     except mysql.connector.Error as err:
@@ -160,11 +160,12 @@ def stop_all_detectors():
     except mysql.connector.Error as err:
         print(f'Database error during startup: {err}')
 
-def start_single_detector(camera_id: str, rtsp_url: str, mode: str):
+def start_single_detector(camera_id: str, rtsp_url: str, mode: str, name: str):
     if camera_id not in video_detectors:
         print(f"Initializing detector for camera: {camera_id} with mode: {mode}")
         detector = VideoDetector(rtsp_url, camera_id, event_callback=handle_crossing_event)
         detector.mode = mode
+        detector.camera_name = name
         video_detectors[camera_id] = detector
         t = Thread(target=detector.run, daemon=True)
         t.start()
@@ -390,26 +391,39 @@ def handle_crossing_event(source_id: str, event_type: str):
             return
 
         mode = source_detector.mode
+        timestamp = time.strftime('%H:%M:%S')
         print(f"Event from {source_id} ({event_type}) with mode: {mode}")
 
         # Mode 1: Increment Self (Exit Only Camera)
         if mode == 'increment_self' and event_type == 'EXIT':
             source_detector.available_slots = source_detector.available_slots + 1
+            log = f'[{timestamp}] {source_detector.camera_name} (EXIT)'
+            source_detector.log_messages.append(log)
+            save_log_to_db(source_id, log)
         
         # Mode 2: Decrement Self (Entry Only Camera)
         elif mode == 'decrement_self' and event_type == 'ENTRY':
             source_detector.available_slots = source_detector.available_slots - 1
+            log = f'[{timestamp}] {source_detector.camera_name} (ENTRY)'
+            source_detector.log_messages.append(log)
         
         # Mode 3: Add a space for this camera AND erase one from a linked camera
         elif mode == 'increment_self_decrement_target':
             if event_type == 'ENTRY':
-                # source_detector.available_slots = source_detector.available_slots + 1
+                source_detector.available_slots = source_detector.available_slots + 1
+                log_source = f'[{timestamp}] {source_detector.camera_name} (ENTRY)'
+                source_detector.log_messages.append(log_source)
+                save_log_to_db(source_id, log_source)
+
                 target_id = camera_links.get(source_id)
                 if target_id:
                     target_detector = video_detectors.get(target_id)
                     if target_detector:
                         print(f"Link triggered: {source_id} -> {target_id}")
                         target_detector.available_slots = target_detector.available_slots - 1
+                        log_target = f'[{timestamp}] {target_detector.camera_name} (EXIT)'
+                        target_detector.log_messages.append(log_target)
+                        save_log_to_db(target_id, log_target)
                 else:
                     print('Target camera not found.')
 
@@ -630,6 +644,19 @@ def get_settings(camera_id: str, user_id: int):
         return JSONResponse(status_code=500, content={'error': f'Database error: {err}'})
 
 # -- Logging and Information Display Endpoints --
+
+def save_log_to_db(camera_id, log_message):
+    try:
+        conn = mysql.connector.connect(**DB_CONFIG)
+        cursor = conn.cursor()
+        query = "INSERT INTO logs (camera_id, message) VALUES (%s, %s)"
+        cursor.execute(query, (camera_id, log_message))
+        conn.commit()
+        cursor.close()
+        conn.close()
+
+    except mysql.connector.Error as err:
+        print(f"Error saving log to DB: {err}")
 
 @app.get('/get_logs/{camera_id}')
 def get_logs(camera_id: str):
