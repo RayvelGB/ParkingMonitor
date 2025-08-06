@@ -19,18 +19,18 @@ DB_CONFIG = {
 
 class VideoDetector:
     # -- Initialize Elements --
-    def __init__(self, rtsp_url, camera_id, mode='default', event_callback=None):
+    def __init__(self, rtsp_url, camera_id, event_callback=None):
         self.rtsp_url = rtsp_url
         self.camera_id = camera_id
-        self.mode = mode
         self.event_callback = event_callback
+        self.mode = 'default'  # This will be correctly set by main.py
         
         self.raw_frame = None
         self.processed_frame = None
         self.frame_lock = Lock()
         self.running = True
 
-        if '?rtsp_transport' not in self.rtsp_url:
+        if '?rtsp_transport=' not in self.rtsp_url:
             self.rtsp_url += '?rtsp_transport=tcp'
         self.cap = cv2.VideoCapture(self.rtsp_url, cv2.CAP_FFMPEG)
         self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 0)
@@ -41,9 +41,9 @@ class VideoDetector:
         self.parking_boxes_data = []
         self.parking_boxes = []
         self.total_spaces = 0
-        self.slot_status = {}
+        self.slot_status = {}  # Now only tracks occupancy state (true/false)
         self.log_messages = []
-        self.available_slots = 0
+        self.available_slots = 0  # This will be controlled entirely by main.py
         self.detection_threshold = 0.35
 
         self.reload_configuration()
@@ -194,10 +194,8 @@ class VideoDetector:
     # -- Run the detection --
     def run(self):
         print(f"[{time.strftime('%H:%M:%S')}] Cam {self.camera_id}: Starting processing loop.")
-
         while self.running:
             local_frame_copy = None
-            
             with self.frame_lock:
                 if self.raw_frame is not None:
                     local_frame_copy = self.raw_frame.copy()
@@ -207,48 +205,44 @@ class VideoDetector:
                 continue
 
             img_tensor = self.img_transform(local_frame_copy)
-            boxes, labels, scores = self.inference(img_tensor)
-            car_indices = np.isin(labels, [4, 5, 6, 9]) # Class IDs for car, truck, etc.
+            boxes, labels, _ = self.inference(img_tensor)
+            car_indices = np.isin(labels, [4, 5, 6, 9])
             boxes = boxes[car_indices]
 
-            current_time = time.time()
             for idx, points in enumerate(self.parking_boxes):
-                entry = any(self.check_intersection((b[0], b[1], b[2], b[3]), points) for b in boxes)
-
-                previous_entry = self.slot_status[idx].get('entry', False)
-                zone_name = self.parking_boxes_data[idx].get('zone')
-                zone_prefix = f'{zone_name} - ' if zone_name else ''
+                is_occupied_now = any(self.check_intersection((b[0], b[1], b[2], b[3]), points) for b in boxes)
                 
-                if not previous_entry and entry:
-                    self.slot_status[idx]['entry'] = True
-                    if self.mode != 'exit_only':
-                        log = f"[{time.strftime('%H:%M:%S')}] {zone_prefix}Slot {idx+1} ENTRY"
+                previous_state = self.slot_status.get(idx, {}).get('occupied', False)
+                
+                # Event fires only on the frame the state changes
+                if is_occupied_now and not previous_state:
+                    if self.mode != 'increment_self':
+                        if idx not in self.slot_status: self.slot_status[idx] = {}
+                        self.slot_status[idx]['occupied'] = True
+                        log = f"[{time.strftime('%H:%M:%S')}] Cam {self.camera_id} - Box {idx+1} CROSSED (ENTRY)"
                         self.log_messages.append(log)
                         self.save_logs_to_db(log)
                         if self.event_callback:
                             self.event_callback(self.camera_id, 'ENTRY')
 
-                elif not entry and previous_entry:
-                    self.slot_status[idx]['entry'] = False  
-                    if self.mode != 'entry_only':
-                        log = f"[{time.strftime('%H:%M:%S')}] {zone_prefix}Slot {idx+1} EXIT"
+                elif not is_occupied_now and previous_state:
+                    if self.mode != 'decrement_self':
+                        if idx not in self.slot_status: self.slot_status[idx] = {}
+                        self.slot_status[idx]['occupied'] = False
+                        log = f"[{time.strftime('%H:%M:%S')}] Cam {self.camera_id} - Box {idx+1} CLEARED (EXIT)"
                         self.log_messages.append(log)
                         self.save_logs_to_db(log)
                         if self.event_callback:
                             self.event_callback(self.camera_id, 'EXIT')
-                        
-                if len(self.log_messages) > 50: # Limit number of logs at 50 for better memory efficiency
-                    self.log_messages.pop(0)
 
-                # -- Coloring of bouding boxes for visualization of occupancy and vacancy --
-                color = (0, 255, 0) if not entry else (0, 0, 255)
-                thickness = 4 if not entry else 2
+                color = (0, 0, 255) if is_occupied_now else (0, 255, 0)
+                thickness = 2
                 pts = np.array(points, np.int32).reshape((-1, 1, 2))
                 cv2.polylines(local_frame_copy, [pts], isClosed=True, color=color, thickness=thickness)
-                
+            
             with self.frame_lock:
                 self.processed_frame = local_frame_copy
-
+            
             time.sleep(0.01)
     
     # -- Generate video feed --

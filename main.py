@@ -58,7 +58,7 @@ def createDB_and_tables():
                 user_id INT,
                 camera_name VARCHAR(255) NOT NULL,
                 stream_url VARCHAR(1024) NOT NULL,
-                mode VARCHAR(20) DEFAULT 'default',
+                mode VARCHAR(20) DEFAULT 'increment_self',
                        
                 FOREIGN KEY (user_id) REFERENCES users (id)
             )
@@ -127,21 +127,13 @@ def start_all_detectors():
     try:
         conn = mysql.connector.connect(**DB_CONFIG)
         cursor = conn.cursor(dictionary=True)
-        cursor.execute("SELECT id, stream_url FROM cameras")
+        cursor.execute("SELECT id, stream_url, mode FROM cameras")
         all_cameras = cursor.fetchall()
         cursor.close()
         conn.close()
 
         for camera in all_cameras:
-            camera_id = camera['id']
-            rtsp_url = camera['stream_url']
-
-            if camera_id not in video_detectors:
-                print(f'Initializing detector for camera: {camera_id}')
-                detector = VideoDetector(rtsp_url, camera_id)
-                video_detectors[camera_id] = detector
-                t = Thread(target=detector.run, daemon=True)
-                t.start()
+            start_single_detector(camera['id'], camera['stream_url'], camera['mode'])
         print(f'Completed startup. {len(video_detectors)} detectors are running.')
 
     except mysql.connector.Error as err:
@@ -168,37 +160,14 @@ def stop_all_detectors():
     except mysql.connector.Error as err:
         print(f'Database error during startup: {err}')
 
-@app.post('/start_stream')
-async def start_stream(request: Request):
-    data = await request.json()
-    camera_id = data.get('camera_id')
-    user_id = data.get('user_id')
-    
-    if camera_id in video_detectors and video_detectors[camera_id].running:
-        print(f"Stream for camera {camera_id} is already running. No action needed.")
-        return JSONResponse({'success': True, 'message': 'Stream already running.'})
-    
-    try:
-        conn = mysql.connector.connect(**DB_CONFIG)
-        cursor = conn.cursor(dictionary=True)
-        cursor.execute("SELECT stream_url FROM cameras WHERE id = %s", (camera_id,))
-        camera = cursor.fetchone()
-        cursor.close()
-        conn.close()
-        if not camera:
-            return JSONResponse(status_code=404, content={'error': 'Camera not registered.'})
-        
-        if not user_id or not verify_camera_ownership(camera_id, user_id):
-            return JSONResponse(status_code=403, content={'success': False, 'error': 'Permission denied.'})
-        
-        rtsp_url = camera['stream_url']
-        detector = VideoDetector(rtsp_url, camera_id)
+def start_single_detector(camera_id: str, rtsp_url: str, mode: str):
+    if camera_id not in video_detectors:
+        print(f"Initializing detector for camera: {camera_id} with mode: {mode}")
+        detector = VideoDetector(rtsp_url, camera_id, event_callback=handle_crossing_event)
+        detector.mode = mode
         video_detectors[camera_id] = detector
         t = Thread(target=detector.run, daemon=True)
         t.start()
-        return JSONResponse({'success': True})
-    except mysql.connector.Error as err:
-        return JSONResponse(status_code=500, content={'error': f'Database error: {err}'})
 
 @app.get('/video_feed/{camera_id}')
 def video_feed(camera_id: str):
@@ -341,6 +310,8 @@ async def register_camera(request: Request):
         conn.commit()
         cursor.close()
         conn.close()
+
+        start_all_detectors()
         return JSONResponse(content={'success': True, 'camera_id': camera_id})
     
     except mysql.connector.Error as err:
@@ -412,26 +383,33 @@ async def delete_camera(camera_id: str, request: Request):
     
 # -- Camera Settings --
     
-def handle_detection_event(source_id: str, event_type: str):
+def handle_crossing_event(source_id: str, event_type: str):
     with detector_lock:
         source_detector = video_detectors.get(source_id)
         if not source_detector:
             return
-        
-        if event_type == 'ENTRY':
-            source_detector.available_slots = max(0, source_detector.available_slots - 1)
-        elif event_type == 'EXIT' and source_detector.mode == 'default':
-            source_detector.available_slots = min(source_detector.total_spaces, source_detector.available_slots + 1)
 
-        target_id = camera_links.get(source_id)
-        if target_id:
-            target_detector = video_detectors.get(target_id)
-            if target_detector:
-                print(f"Link triggered: {source_id} ({event_type}) -> {target_id}")
-                if event_type == 'ENTRY':
-                    target_detector.available_slots = min(target_detector.total_spaces, target_detector.available_slots + 1)
-                elif event_type == 'EXIT':
-                    target_detector.available_slots = max(0, target_detector.available_slots - 1)
+        mode = source_detector.mode
+        print(f"Event from {source_id} ({event_type}) with mode: {mode}")
+
+        # Mode 1: Increment Self (Exit Only Camera)
+        if mode == 'increment_self' and event_type == 'EXIT':
+            source_detector.available_slots = min(source_detector.total_spaces, source_detector.available_slots + 1)
+        
+        # Mode 2: Decrement Self (Entry Only Camera)
+        elif mode == 'decrement_self' and event_type == 'ENTRY':
+            source_detector.available_slots = max(0, source_detector.available_slots - 1)
+        
+        # Mode 3: Add a space for this camera AND erase one from a linked camera
+        elif mode == 'increment_self_decrement_target':
+            if event_type == 'ENTRY':
+                source_detector.available_slots = min(source_detector.total_spaces, source_detector.available_slots + 1)
+                target_id = camera_links.get(source_id)
+                if target_id:
+                    target_detector = video_detectors.get(target_id)
+                    if target_detector:
+                        print(f"Link triggered: {source_id} -> {target_id}")
+                        target_detector.available_slots = max(0, target_detector.available_slots - 1)
 
 def load_camera_links():
     global camera_links
@@ -482,7 +460,7 @@ async def set_camera_mode(camera_id: str, request: Request):
     data = await request.json()
     mode = data.get('mode')
 
-    if mode not in ['default', 'entry_only', 'exit_only']:
+    if mode not in ['increment_self', 'decrement_self', 'increment_self_decrement_target']:
         return JSONResponse(status_code=400, content={'success': False, 'error': 'Invalid mode specified.'})
     
     try:
