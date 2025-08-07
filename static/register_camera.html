@@ -95,17 +95,13 @@
                         <hr class="flex-1 border-gray-700">
                     </div>
 
-
-                    <!-- Launch Existing Camera Section -->
+                    <!-- Launch Stream Section -->
                     <div>
-                        <h2 class="text-2xl font-bold text-center mb-4">Launch Existing Camera</h2>
-                        <label for="camera-id" class="block text-sm font-medium text-gray-400 mb-2">Existing Camera ID</label>
-                        <input type="text" id="camera-id" placeholder="Enter existing camera ID" autocomplete="off" class="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-sm mb-4">
+                        <h2 class="text-2xl font-bold text-center mb-4">Launch Dashboard</h2>
                         <button id="launch-btn" class="w-full bg-blue-600 hover:bg-blue-700 py-3 rounded-lg flex items-center justify-center transition">
                             <i class="fas fa-play-circle mr-2"></i> Launch Stream
                         </button>
                     </div>
-                    <p id="status" class="text-center text-gray-400 min-h-[24px] mt-6"></p>
                 </div>
             </main>
 
@@ -129,6 +125,13 @@
                 <button id="continue-btn" class="w-full bg-blue-600 hover:bg-blue-700 py-3 rounded-lg flex items-center justify-center transition">
                     Continue to Draw Zones
                 </button>
+            </div>
+        </div>
+
+        <div id="status-modal" class="hidden fixed inset-0 bg-black bg-opacity-60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+            <div class="modal-content bg-gray-800 rounded-xl shadow-xl p-8 w-full max-w-md text-center">
+                <div id="status-icon" class="text-4xl mb-4"></div>
+                <p id="status-text" class="text-lg"></p>
             </div>
         </div>
         
@@ -161,6 +164,11 @@
                 const copyBtn = document.getElementById('copy-btn');
                 const continueBtn = document.getElementById('continue-btn');
                 let newCameraId = '';
+
+                // Status model elements
+                const statusModal = document.getElementById('status-modal');
+                const statusIcon = document.getElementById('status-icon');
+                const statusText = document.getElementById('status-text');
 
                 // --- Get user info from sessionStorage ---
                 const user = JSON.parse(sessionStorage.getItem('user'));
@@ -203,10 +211,20 @@
                 setInterval(updateTime, 1000);
                 updateTime();
 
-                function setStatus(message, isError = false) {
-                    statusEl.textContent = message;
-                    statusEl.classList.toggle('text-red-400', isError);
-                    statusEl.classList.toggle('text-gray-400', !isError);
+                function setStatus(message, type = 'info') {
+                    statusText.textContent = message;
+                    statusModal.classList.remove('hidden');
+
+                    if (type === 'error') {
+                        statusIcon.innerHTML = `<i class="fas fa-exclamation-circle text-red-500"></i>`;
+                        // Keep error messages visible until the user clicks away
+                        statusModal.addEventListener('click', () => statusModal.classList.add('hidden'), { once: true });
+                    } else if (type === 'success') {
+                        statusIcon.innerHTML = `<i class="fas fa-check-circle text-green-500"></i>`;
+                        setTimeout(() => statusModal.classList.add('hidden'), 2000);
+                    } else { // 'info' or loading
+                        statusIcon.innerHTML = `<i class="fas fa-spinner fa-spin text-blue-500"></i>`;
+                    }
                 }
 
                 registerBtn.addEventListener('click', () => {
@@ -214,17 +232,17 @@
                     const streamUrl = urlInput.value.trim();
                     
                     if (!cameraName) {
-                        setStatus('Please enter a name for the camera.', true);
+                        setStatus('Please enter a name for the camera.', 'error');
                         return;
                     }
 
                     const urlRegex = /^[a-zA-Z]+:\/\//;
                     if (!urlRegex.test(streamUrl)) {
-                        setStatus('Invalid format. URL must be a valid link (e.g., http://, rtsp://).', true);
+                        setStatus('Invalid format. URL must be a valid link (e.g., http://, rtsp://).', 'error');
                         return;
                     }
                     
-                    setStatus('Registering...');
+                    setStatus('Registering...', 'info');
                     fetch('/register_camera', {
                         method: 'POST',
                         headers: {'Content-Type': 'application/json'},
@@ -237,17 +255,17 @@
                     .then(response => response.json())
                     .then(result => {
                         if (result.success && result.camera_id) {
-                            setStatus('');
+                            setStatus('Successfully registered camera!', 'success');
                             newCameraId = result.camera_id;
                             newCameraIdInput.value = newCameraId;
                             copyModal.classList.remove('hidden');
                         } else {
-                            setStatus(result.error || 'Failed to register camera. Please try again.', true);
+                            setStatus(result.error || 'Failed to register camera. Please try again.', 'error');
                         }
                     })
                     .catch(err => {
                         console.error('Registration error:', err);
-                        setStatus('An error occurred. Please check the server connection.', true);
+                        setStatus('An error occurred. Please check the server connection.', 'error');
                     });
                 });
 
@@ -256,11 +274,11 @@
                     const targetId = targetIdInput.value.trim();
 
                     if (!sourceId || !targetId) {
-                        setStatus('Both Source and Target Camera IDs are required.', true);
+                        setStatus('Both Source and Target Camera IDs are required.', 'error');
                         return;
                     }
 
-                    setStatus('Linking cameras...');
+                    setStatus('Linking cameras...', 'info');
                     fetch('/link_cameras', {
                         method: 'POST',
                         headers: {'Content-Type': 'application/json'},
@@ -273,25 +291,38 @@
                     .then(response => response.json())
                     .then(result => {
                         if (result.success) {
-                            setStatus('Cameras linked successfully!');
+                            setStatus('Cameras linked successfully!', 'success');
                         } else {
-                            setStatus(result.error || 'Failed to link cameras', true);
+                            setStatus(result.error || 'Failed to link cameras', 'error');
                         }
                     })
                     .catch(err => {
                         console.error('Link error:', err);
-                        setStatus('An error occurred. Please check the server connection.', true);
+                        setStatus('An error occurred. Please check the server connection.', 'error');
                     });
                 });
 
                 launchBtn.addEventListener('click', () => {
-                    const cameraId = idInput.value.trim();
-                    if (!cameraId) {
-                        setStatus('Please enter an existing Camera ID.', true);
-                        return;
-                    }
-                    setStatus('Launching stream...');
-                    window.location.href = `/stream.html?camera_id=${cameraId}`;
+                    setStatus('Finding your cameras...', 'info');
+                    fetch(`/get_cameras/${user.user_id}`)
+                        .then(response => {
+                            if (!response.ok) throw new Error('Could not fetch cameras.');
+                            return response.json();
+                        })
+                        .then(cameras => {
+                            if (cameras && cameras.length > 0) {
+                                const firstCameraId = cameras[0].id;
+                                setStatus('Launching stream...', 'info');
+                                window.location.href = `/stream.html?camera_id=${firstCameraId}`;
+                            } else {
+                                setStatus('No cameras registered. Please register a camera first.', 'error');
+                            }
+                        })
+                        .catch(err => {
+                            console.error('Launch error:', err);
+                            setStatus('An error occurred. Could not find cameras.', 'error');
+                        });
+                    navigator.sendBeacon('/start_all_streams', JSON.stringify({}));
                 });
 
                 copyBtn.addEventListener('click', () => {

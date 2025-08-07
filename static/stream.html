@@ -86,6 +86,7 @@
                     </div>
                 </div>
 
+                <!-- Settings Dropdown -->
                 <div class="relative">
                     <button id="settings-menu-button" class="w-10 h-10 bg-gray-700 rounded-full flex items-center justify-center text-lg text-white focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-800 focus:ring-white">
                         <i class="fas fa-cog"></i>
@@ -102,17 +103,21 @@
                             <input id="detection-slider" type="range" min="0.1" max="0.9" step="0.05" value="0.35" class="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer">
                         </div>
 
+                        <!-- Camera Modes -->
                         <div class="mb-4">
                             <label class="block text-sm font-medium text-gray-300 mb-2">Camera Mode</label>
                             <div class="space-y-2">
+                                <!-- Removes from self, but adds to the connecting camera when car crosses line -->
                                 <div class="flex items-center">
-                                    <input id="mode-default" name="camera-mode" type="radio" value="increment_self_decrement_target" class="h-4 w-4 text-blue-600 bg-gray-700 border-gray-600 focus:ring-blue-500">
+                                    <input id="mode-default" name="camera-mode" type="radio" value="increment_target_decrement_self" class="h-4 w-4 text-blue-600 bg-gray-700 border-gray-600 focus:ring-blue-500">
                                     <label for="mode-default" class="ml-2 block text-sm text-gray-300">Default (Entry & Exit)</label>
                                 </div>
+                                <!-- Removes available slots from self when car crosses box line -->
                                 <div class="flex items-center">
                                     <input id="mode-entry" name="camera-mode" type="radio" value="decrement_self" class="h-4 w-4 text-blue-600 bg-gray-700 border-gray-600 focus:ring-blue-500">
                                     <label for="mode-entry" class="ml-2 block text-sm text-gray-300">Entry Only</label>
                                 </div>
+                                <!-- Adds available slots to self when car crosses box line -->
                                 <div class="flex items-center">
                                     <input id="mode-exit" name="camera-mode" type="radio" value="increment_self" class="h-4 w-4 text-blue-600 bg-gray-700 border-gray-600 focus:ring-blue-500">
                                     <label for="mode-exit" class="ml-2 block text-sm text-gray-300">Exit Only</label>
@@ -149,10 +154,10 @@
                             </button>
                         </div>
                         <button id="edit-bounds-btn" class="bg-gray-600 hover:bg-gray-500 px-3 py-1 rounded text-sm flex items-center flex-shrink-0">
-                            <i class="fas fa-draw-polygon mr-2"></i> Edit Spaces
+                            <i class="fas fa-layer-group mr-2"></i> Edit Bounds
                         </button>
-                        <button id="assign-zones-btn" class="bg-gray-600 hover:bg-gray-500 px-3 py-1 rounded text-sm flex items-center flex-shrink-0">
-                            <i class="fas fa-layer-group mr-2"></i> Assign Zones
+                        <button id="set-spaces-btn" class="bg-gray-600 hover:bg-gray-500 px-3 py-1 rounded text-sm flex items-center flex-shrink-0">
+                            <i class="fas fa-draw-polygon mr-2"></i> Set Spaces
                         </button>
                         <button id="delete-camera-btn" class="bg-red-600 hover:bg-red-700 px-3 py-1 rounded text-sm flex items-center flex-shrink-0">
                             <i class="fas fa-trash mr-2"></i> Delete
@@ -173,18 +178,19 @@
             
             <!-- Stats Section -->
             <div class="space-y-6">
+                <!-- All Camera Occupancy -->
                 <div class="bg-gray-800 rounded-xl p-6 shadow-xl">
                     <h2 class="text-lg font-semibold mb-4 flex items-center">
                         <i class="fas fa-chart-pie mr-2 mt-0.5 text-blue-400"></i>
-                        Parking Occupancy
+                        Overall Occupancy
                     </h2>
                     <div class="grid grid-cols-2 gap-4 mb-6">
                         <div class="bg-gray-700 rounded-lg p-4 text-center">
-                            <div id="total-spaces" class="text-3xl font-bold text-blue-400">--</div>
+                            <div id="aggregate-total-spaces" class="text-3xl font-bold text-purple-400">--</div>
                             <div class="text-sm text-gray-400">Total Spaces</div>
                         </div>
                         <div class="bg-gray-700 rounded-lg p-4 text-center">
-                            <div id="available-spaces" class="text-3xl font-bold text-green-400">--</div>
+                            <div id="aggregate-available-spaces" class="text-3xl font-bold text-green-400">--</div>
                             <div class="text-sm text-gray-400">Available</div>
                         </div>
                     </div>
@@ -198,6 +204,24 @@
                         </div>
                     </div>
                 </div>
+                <!-- Only show occupancy for current camera in feed -->
+                 <div class="bg-gray-800 rounded-xl p-6 shadow-xl">
+                    <h2 class="text-lg font-semibold mb-4">
+                        <i class="fas fa-chart-area mr-2 mt-0.5 text-blue-400"></i>
+                        Current Camera Stats
+                    </h2>
+                    <div class="grid grid-cols-2 gap-4">
+                        <div class="bg-gray-700 rounded-lg p-4 text-center">
+                            <div id="total-spaces" class="text-3xl font-bold text-blue-400">--</div>
+                            <div class="text-sm text-gray-400">Total Spaces</div>
+                        </div>
+                        <div class="bg-gray-700 rounded-lg p-4 text-center">
+                            <div id="available-spaces" class="text-3xl font-bold text-green-400">--</div>
+                            <div class="text-sm text-gray-400">Available</div>
+                        </div>
+                    </div>
+                </div>
+                <!-- Additional Info -->
                 <div class="bg-gray-800 rounded-xl p-6 shadow-xl">
                     <h2 class="text-lg font-semibold mb-4 flex items-center">
                         <i class="fas fa-broadcast-tower mr-2 mt-0.5 text-blue-400"></i>
@@ -270,6 +294,8 @@
             const totalSpacesEl = document.getElementById('total-spaces');
             const occupancyPercentEl = document.getElementById('occupancy-percent');
             const occupancyBarEl = document.getElementById('occupancy-bar');
+            const aggregateTotalEl = document.getElementById('aggregate-total-spaces');
+            const aggregateAvailableEl = document.getElementById('aggregate-available-spaces');
             const currentTimeEl = document.getElementById('current-time');
             const cameraIdDisplayEl = document.getElementById('camera-id-display');
             const lastUpdatedEl = document.getElementById('last-updated');
@@ -277,7 +303,7 @@
             
             // --- Buttons above feed ---
             const editBoundsBtn = document.getElementById('edit-bounds-btn');
-            const assignZonesBtn = document.getElementById('assign-zones-btn');
+            const setSpacesBtn = document.getElementById('set-spaces-btn');
             const deleteCamBtn = document.getElementById('delete-camera-btn');
             const prevCamBtn = document.getElementById('prev-camera-btn');
             const nextCamBtn = document.getElementById('next-camera-btn');
@@ -306,7 +332,6 @@
             // --- Initial State & Auth ---
             let currentCameraId = null;
             const urlParams = new URLSearchParams(window.location.search);
-            const camera_id = urlParams.get('camera_id');
             const user = JSON.parse(sessionStorage.getItem('user'));
             let totalParkingSpaces = null;
             let lastLogMessage = "";
@@ -366,11 +391,30 @@
                 const newCamera = allCameras[currentCameraIndex];
                 currentCameraId = newCamera.id;
 
+                loader.classList.remove('hidden');
+                videoFeed.classList.add('hidden');
+                streamStatusIndicator.innerHTML = `<div class="w-2 h-2 bg-gray-500 rounded-full mr-2"></div><span class="font-medium text-gray-400">Connecting...</span>`;
+
+                videoFeed.onload = () => {
+                    streamStatusIndicator.innerHTML = `
+                        <div class="w-2 h-2 bg-green-500 rounded-full mr-2 live-indicator"></div>
+                        <span class="font-medium text-green-400">Online</span>
+                    `;
+                };
+
+                videoFeed.onerror = () => {
+                    streamStatusIndicator.innerHTML = `
+                        <div class="w-2 h-2 bg-red-500 rounded-full mr-2"></div>
+                        <span class="font-medium text-red-400">Error</span>
+                    `;
+                };
+
                 videoFeed.src = `/video_feed/${currentCameraId}?t=${new Date().getTime()}`;
                 
                 camNameDisplay.textContent = newCamera.name;
                 camNameDisplay.title = newCamera.name;
                 cameraIdDisplayEl.textContent = currentCameraId;
+                
                 loader.classList.add('hidden');
                 videoFeed.classList.remove('hidden');
                 streamStatusIndicator.innerHTML = `<div class="w-2 h-2 bg-green-500 rounded-full mr-2 live-indicator"></div><span class="font-medium text-green-400">Online</span>`;
@@ -385,39 +429,37 @@
                 loadSettings(currentCameraId);
             }
 
-            async function initializePage() {
+             async function initializePage() {
                 try {
                     const response = await fetch(`/get_cameras/${user.user_id}`);
-                    if (!response.ok) {
-                        throw new Error(`Server responded with ${response.status}`);
-                    }
+                    if (!response.ok) throw new Error(`Server error: ${response.status}`);
+                    
                     const cameras = await response.json();
                     
-                    allCameras = Object.entries(cameras).map(([id, data]) => ({
-                        id: id,
-                        name: data.camera_name || `Cam ${id.substring(0, 8)}`
+                    
+                    allCameras = cameras.map(cam => ({
+                        id: cam.id,
+                        name: cam.camera_name || `Cam ${cam.id.substring(0, 8)}`
                     }));
 
                     if (allCameras.length === 0) {
                         loader.innerHTML = '<div class="text-center"><i class="fas fa-video-slash text-gray-500 text-5xl mb-4"></i><p class="text-gray-400">No cameras registered. <a href="/register_camera.html" class="text-blue-400 hover:underline">Add a camera</a> to begin.</p></div>';
                         camNameDisplay.textContent = "No Cameras";
-                        [prevCamBtn, nextCamBtn, editBoundsBtn].forEach(btn => btn.disabled = true);
+                        [prevCamBtn, nextCamBtn, editBoundsBtn, setSpacesBtn].forEach(btn => btn.disabled = true);
                         return;
                     }
 
                     const urlParams = new URLSearchParams(window.location.search);
                     const requestedCameraId = urlParams.get('camera_id');
                     let startIndex = allCameras.findIndex(cam => cam.id === requestedCameraId);
-                    if (startIndex === -1) {
-                        startIndex = 0;
-                    }
+                    if (startIndex === -1) startIndex = 0;
                     
                     switchCamera(startIndex);
 
                 } catch (err) {
                     console.error("Initialization failed:", err);
-                    loader.innerHTML = `<div class="text-center"><i class="fas fa-exclamation-triangle text-red-500 text-5xl mb-4"></i><p class="text-gray-400">Error loading camera data. Please check server connection and try again.</p></div>`;
-                    streamStatusIndicator.innerHTML = `<div class="w-2 h-2 bg-red-500 rounded-full mr-2"></div><span class="font-medium text-red-400">Offline</span>`;
+                    loader.innerHTML = `<div class="text-center"><i class="fas fa-exclamation-triangle text-red-500 text-5xl mb-4"></i><p class="text-gray-400">Error loading camera data.</p></div>`;
+                    streamStatusIndicator.innerHTML = `<div class="w-2 h-2 bg-red-500 rounded-full mr-2"></div><span class="font-medium text-red-400">Error</span>`;
                 }
             }
 
@@ -429,11 +471,14 @@
                             return;
                         }
 
-                        const totalSpaces = data.total_spaces;
-                        const occupiedSpaces = totalSpaces > 0 ? totalSpaces - data.available_slots : 0;
-                        const occupancyPercent = totalSpaces > 0 ? Math.round((occupiedSpaces / totalSpaces) * 100) : 0;
+                        const aggregateTotal = data.aggregate_total;
+                        const occupiedSpaces = aggregateTotal > 0 ? aggregateTotal - data.aggregate_available : 0;
+                        const occupancyPercent = aggregateTotal > 0 ? Math.round((occupiedSpaces / aggregateTotal) * 100) : 0;
 
-                        totalSpacesEl.textContent = totalSpaces;
+                        aggregateAvailableEl.textContent = data.aggregate_available;
+                        aggregateTotalEl.textContent = aggregateTotal;
+
+                        totalSpacesEl.textContent = data.total_spaces;
                         availableSpacesEl.textContent = data.available_slots;
                         occupancyPercentEl.textContent = `${occupancyPercent}%`;
                         occupancyBarEl.style.width = `${occupancyPercent}%`;
@@ -547,7 +592,7 @@
                 }
                 settingsStatus.textContent = 'Saving...';
 
-                let selectedMode = 'increment_self_decrement_target';
+                let selectedMode = 'increment_target_decrement_self';
                 if (modeEntryRadio.checked) {
                     selectedMode = 'decrement_self';
                 } else if (modeExitRadio.checked) {
@@ -624,9 +669,9 @@
                 }
             });
 
-            assignZonesBtn.addEventListener('click', () => {
+            setSpacesBtn.addEventListener('click', () => {
                 if (currentCameraId) {
-                    window.location.href = `/zone_picker.html?camera_id=${currentCameraId}`;
+                    window.location.href = `/set_spaces.html`;
                 }
             });
 

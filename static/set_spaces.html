@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Set Total Spaces</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="shortcut icon" href="/static/favicon.png" type="image/x-icon">
+    <style>
+        .hidden { display: none; }
+        input[type=number]::-webkit-inner-spin-button,
+        input[type=number]::-webkit-outer-spin-button {
+            -webkit-appearance: none;
+            margin: 0;
+        }
+        input[type=number] {
+            -moz-appearance: textfield;
+            appearance: none;
+        }
+    </style>
+</head>
+<body class="bg-gray-900 text-gray-100 min-h-screen">
+    <div class="container mx-auto px-4 py-6">
+        <!-- Header -->
+        <header class="flex flex-col md:flex-row justify-between items-center mb-8">
+            <div class="flex items-center mb-4 md:mb-0">
+                <i class="fas fa-hashtag text-blue-500 text-3xl mr-3"></i>
+                <h1 class="text-2xl md:text-3xl font-bold bg-gradient-to-r from-blue-400 to-blue-600 bg-clip-text text-transparent pb-1">
+                    Set Total Parking Spaces
+                </h1>
+            </div>
+            <div class="flex items-center space-x-4">
+                <div class="flex items-center bg-gray-800 px-4 py-2 rounded-lg">
+                    <i class="fas fa-clock text-blue-400 mr-2"></i>
+                    <span id="current-time" class="font-mono">00:00:00</span>
+                </div>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <main class="flex justify-center">
+            <div class="bg-gray-800 rounded-xl shadow-xl p-8 w-full max-w-2xl">
+                <h2 class="text-2xl font-bold text-center mb-2">All Cameras</h2>
+                <p class="text-center text-gray-400 text-sm mb-6">Set the total number of spaces each camera is monitoring. This value is used for counting.</p>
+                
+                <!-- Camera List Container -->
+                <div id="camera-list-container" class="space-y-4 mb-6 max-h-96 overflow-y-auto pr-4">
+                    <!-- Camera items will be dynamically inserted here -->
+                    <p id="loading-text" class="text-center text-gray-400">Loading cameras...</p>
+                </div>
+
+                <div class="mt-6 flex flex-col gap-2">
+                    <button id="save-btn" class="w-full bg-blue-600 hover:bg-blue-700 py-3 rounded-lg flex items-center justify-center transition">
+                        <i class="fas fa-save mr-2"></i> Save All Changes
+                    </button>
+                     <button id="back-to-stream-btn" class="w-full bg-gray-600 hover:bg-gray-700 py-2 rounded-lg flex items-center justify-center transition">
+                        <i class="fas fa-arrow-left mr-2"></i> Back to Camera Management
+                    </button>
+                </div>
+                 <p id="status" class="text-center text-gray-400 min-h-[24px] mt-4"></p>
+            </div>
+        </main>
+    </div>
+    
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const saveBtn = document.getElementById('save-btn');
+            const backBtn = document.getElementById('back-to-stream-btn');
+            const statusEl = document.getElementById('status');
+            const cameraListContainer = document.getElementById('camera-list-container');
+            const loadingText = document.getElementById('loading-text');
+            const currentTimeEl = document.getElementById('current-time');
+
+            const user = JSON.parse(sessionStorage.getItem('user'));
+
+            if (!user) {
+                window.location.href = '/';
+                return;
+            }
+
+            function updateTime() { currentTimeEl.textContent = new Date().toLocaleTimeString(); }
+            setInterval(updateTime, 1000);
+            updateTime();
+
+            // Fetch initial data for all cameras
+            fetch(`/get_cameras/${user.user_id}`)
+                .then(res => res.json())
+                .then(cameras => {
+                    loadingText.classList.add('hidden');
+                    if (!cameras || cameras.length === 0) {
+                        cameraListContainer.innerHTML = '<p class="text-center text-gray-500">No cameras have been registered yet.</p>';
+                        return;
+                    }
+
+                    cameras.forEach(camera => {
+                        const cameraDiv = document.createElement('div');
+                        cameraDiv.className = 'flex items-center justify-between bg-gray-700 p-3 rounded-lg';
+                        cameraDiv.innerHTML = `
+                            <div>
+                                <p class="font-semibold">${camera.camera_name || 'Unnamed Camera'}</p>
+                                <p class="text-xs text-gray-400 font-mono">${camera.id}</p>
+                            </div>
+                            <input type="number" min="0" value="${camera.total_spaces || 0}" 
+                                   data-camera-id="${camera.id}"
+                                   class="camera-space-input w-24 bg-gray-800 border border-gray-600 rounded-lg px-3 py-1 text-center font-bold">
+                        `;
+                        cameraListContainer.appendChild(cameraDiv);
+                    });
+                })
+                .catch(err => {
+                    loadingText.textContent = "Error loading camera data.";
+                });
+
+            saveBtn.addEventListener('click', () => {
+                const inputs = document.querySelectorAll('.camera-space-input');
+                const spacesData = [];
+                
+                inputs.forEach(input => {
+                    const newTotalSpaces = parseInt(input.value, 10);
+                    if (!isNaN(newTotalSpaces) && newTotalSpaces >= 0) {
+                        spacesData.push({
+                            id: input.dataset.cameraId,
+                            spaces: newTotalSpaces
+                        });
+                    }
+                });
+
+                statusEl.textContent = 'Saving...';
+                fetch('/set_bulk_total_spaces', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        user_id: user.user_id,
+                        spaces_data: spacesData
+                    })
+                })
+                .then(response => response.json())
+                .then(result => {
+                    if (result.success) {
+                        statusEl.textContent = 'Saved successfully!';
+                        setTimeout(() => {
+                           statusEl.textContent = '';
+                        }, 2000);
+                    } else {
+                        statusEl.textContent = result.error || 'Failed to save. Please try again.';
+                    }
+                })
+                .catch(err => {
+                    console.error('Save error:', err);
+                    statusEl.textContent = 'Error connecting to server.';
+                });
+            });
+
+            backBtn.addEventListener('click', () => {
+                // Go back to the camera management page
+                window.location.href = `/register_camera.html`;
+            });
+        });
+    </script>
+</body>
+</html>

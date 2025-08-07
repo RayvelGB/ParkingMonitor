@@ -42,9 +42,9 @@ class VideoDetector:
         self.parking_boxes_data = []
         self.parking_boxes = []
         self.total_spaces = 0
-        self.slot_status = {}  # Now only tracks occupancy state (true/false)
+        self.slot_status = {}
         self.log_messages = []
-        self.available_slots = 0  # This will be controlled entirely by main.py
+        self.available_slots = 0
         self.detection_threshold = 0.35
 
         self.reload_configuration()
@@ -101,7 +101,6 @@ class VideoDetector:
                     self.parking_boxes_data = []
                     self.parking_boxes = []
 
-                self.total_spaces = len(self.parking_boxes)
                 self.slot_status = {
                     idx: {
                         'entry': False, 
@@ -109,7 +108,6 @@ class VideoDetector:
                         'entry_time': None
                     } 
                     for idx in range(len(self.parking_boxes))}
-                self.available_slots = self.total_spaces
             else:
                 print(f"[{time.strftime('%H:%M:%S')}] Settings updated. Preserving current occupancy state.")
 
