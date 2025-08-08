@@ -322,7 +322,6 @@
                             console.error('Launch error:', err);
                             setStatus('An error occurred. Could not find cameras.', 'error');
                         });
-                    navigator.sendBeacon('/start_all_streams', JSON.stringify({}));
                 });
 
                 copyBtn.addEventListener('click', () => {

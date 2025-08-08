@@ -36,7 +36,7 @@ DB_CONFIG = {
     'database': 'entry_db'
 }
 
-# -- Setup database --
+# Setup database
 def createDB_and_tables():
     try:
         conn = mysql.connector.connect(**DB_CONFIG)
@@ -59,6 +59,7 @@ def createDB_and_tables():
                 camera_name VARCHAR(255) NOT NULL,
                 stream_url VARCHAR(1024) NOT NULL,
                 mode VARCHAR(101) DEFAULT 'increment_self',
+                total_spaces INT DEFAULT 0,
                        
                 FOREIGN KEY (user_id) REFERENCES users (id)
             )
@@ -127,13 +128,13 @@ def start_all_detectors():
     try:
         conn = mysql.connector.connect(**DB_CONFIG)
         cursor = conn.cursor(dictionary=True)
-        cursor.execute("SELECT id, stream_url, mode, camera_name FROM cameras")
+        cursor.execute("SELECT id, stream_url, mode, camera_name, total_spaces FROM cameras")
         all_cameras = cursor.fetchall()
         cursor.close()
         conn.close()
 
         for camera in all_cameras:
-            start_single_detector(camera['id'], camera['stream_url'], camera['mode'], camera['camera_name'])
+            start_single_detector(camera['id'], camera['stream_url'], camera['mode'], camera['camera_name'], camera['total_spaces'])
         print(f'Completed startup. {len(video_detectors)} detectors are running.')
 
     except mysql.connector.Error as err:
@@ -160,12 +161,14 @@ def stop_all_detectors():
     except mysql.connector.Error as err:
         print(f'Database error during startup: {err}')
 
-def start_single_detector(camera_id: str, rtsp_url: str, mode: str, name: str):
+def start_single_detector(camera_id: str, rtsp_url: str, mode: str, name: str, total_spaces: int):
     if camera_id not in video_detectors:
         print(f"Initializing detector for camera: {camera_id} with mode: {mode}")
         detector = VideoDetector(rtsp_url, camera_id, event_callback=handle_crossing_event)
         detector.mode = mode
         detector.camera_name = name
+        detector.total_spaces = total_spaces
+        detector.available_slots = total_spaces
         video_detectors[camera_id] = detector
         t = Thread(target=detector.run, daemon=True)
         t.start()
@@ -197,9 +200,9 @@ def serve_register_page():
 def serve_picker_page():
     return FileResponse('static/picker.html')
 
-@app.get('/zone_picker.html')
-def serve_zone_picker_page():
-    return FileResponse('static/zone_picker.html')
+@app.get('/set_spaces.html')
+def serve_set_spaces_page():
+    return FileResponse('static/set_spaces.html')
 
 @app.get('/stream.html')
 def serve_stream_page():
@@ -208,7 +211,7 @@ def serve_stream_page():
 
 # -- Authentication Endpoints --
 
-# -- Initialize password hash --
+# Initialize password hash
 pwd_context = CryptContext(schemes=['bcrypt'], deprecated='auto')
 
 def verify_password(plain_password, hashed_password):
@@ -283,6 +286,7 @@ async def login_user(request: Request):
         if not user or not verify_password(password, user['hashed_password']):
             return JSONResponse(status_code=400, content={'success': False, 'error': 'Invalid username or password.'})
         
+        start_all_detectors()
         return JSONResponse(content={'success': True, 'user_id': user['id'], 'username': username})
     
     except mysql.connector.Error as err:
@@ -300,7 +304,7 @@ async def register_camera(request: Request):
     if not all([user_id, stream_url, camera_name]):
         return JSONResponse(status_code=400, content={'success': False, 'error': 'Missing required fields.'})
     
-    camera_id = str(uuid.uuid4())
+    camera_id = str(uuid.uuid4()) # -> Give camera a unique ID
     
     try:
         conn = mysql.connector.connect(**DB_CONFIG)
@@ -315,16 +319,16 @@ async def register_camera(request: Request):
         start_all_detectors()
         return JSONResponse(content={'success': True, 'camera_id': camera_id})
     
-    except mysql.connector.Error as err:
+    except mysql.connector.Error as err:    
         return JSONResponse(status_code=500, content={'success': False, 'error': f'Database error {err}'})
-
+    
 @app.get('/get_cameras/{user_id}')
 def get_cameras(user_id: int):
     try:
         conn = mysql.connector.connect(**DB_CONFIG)
         cursor = conn.cursor(dictionary=True)
-        cursor.execute("SELECT id, camera_name FROM cameras WHERE user_id = %s", (user_id,))
-        cameras = {row['id']: {'camera_name': row['camera_name']} for row in cursor.fetchall()}
+        cursor.execute("SELECT id, camera_name, total_spaces FROM cameras WHERE user_id = %s", (user_id,))
+        cameras = cursor.fetchall()
         cursor.close()
         conn.close()
         return JSONResponse(content=cameras)
@@ -339,7 +343,7 @@ def get_camera_details(camera_id: str, user_id: int):
     try:
         conn = mysql.connector.connect(**DB_CONFIG)
         cursor = conn.cursor(dictionary=True)
-        cursor.execute("SELECT id, camera_name, mode FROM cameras WHERE id = %s", (camera_id,))
+        cursor.execute("SELECT id, camera_name, mode, total_spaces FROM cameras WHERE id = %s", (camera_id,))
         camera_details = cursor.fetchone()
         cursor.close()
         conn.close()
@@ -408,10 +412,11 @@ def handle_crossing_event(source_id: str, event_type: str):
             source_detector.log_messages.append(log)
         
         # Mode 3: Add a space for this camera AND erase one from a linked camera
-        elif mode == 'increment_self_decrement_target':
+        elif mode == 'increment_target_decrement_self':
             if event_type == 'ENTRY':
-                source_detector.available_slots = source_detector.available_slots + 1
+                source_detector.available_slots = source_detector.available_slots - 1
                 log_source = f'[{timestamp}] {source_detector.camera_name} (ENTRY)'
+                print(f'Available Slots (SOURCE): {source_detector.available_slots}')
                 source_detector.log_messages.append(log_source)
                 save_log_to_db(source_id, log_source)
 
@@ -420,8 +425,9 @@ def handle_crossing_event(source_id: str, event_type: str):
                     target_detector = video_detectors.get(target_id)
                     if target_detector:
                         print(f"Link triggered: {source_id} -> {target_id}")
-                        target_detector.available_slots = target_detector.available_slots - 1
+                        target_detector.available_slots = target_detector.available_slots + 1
                         log_target = f'[{timestamp}] {target_detector.camera_name} (EXIT)'
+                        print(f'Available Slots (TARGET): {target_detector.available_slots}')
                         target_detector.log_messages.append(log_target)
                         save_log_to_db(target_id, log_target)
                 else:
@@ -476,7 +482,7 @@ async def set_camera_mode(camera_id: str, request: Request):
     data = await request.json()
     mode = data.get('mode')
 
-    if mode not in ['increment_self', 'decrement_self', 'increment_self_decrement_target']:
+    if mode not in ['increment_self', 'decrement_self', 'increment_target_decrement_self']:
         return JSONResponse(status_code=400, content={'success': False, 'error': 'Invalid mode specified.'})
     
     try:
@@ -549,7 +555,7 @@ async def save_boxes(camera_id: str, request: Request):
                 points = space_data # Data from picker.html
             elif isinstance(space_data, dict):
                 points = space_data.get('points') # Data from zone_picker.html
-                zone_name = space_data.get('zone')
+                zone_name = space_data.get('zone') # -> NOT USED FOR TRIPWIRE DETECTION
 
             if points:
                 points_json = json.dumps(points)
@@ -665,8 +671,53 @@ def get_logs(camera_id: str):
     
     detector = video_detectors[camera_id]
     logs = detector.log_messages[-100:]
-    total_spaces, available_slots = get_aggregate_stats()
-    return JSONResponse(content={'logs': logs, 'available_slots': available_slots, 'total_spaces': total_spaces})
+    total_spaces = detector.total_spaces
+    available_slots = detector.available_slots
+
+    aggregate_total, aggregate_available = get_aggregate_stats()
+    return JSONResponse(content={'logs': logs, 'available_slots': available_slots, 'total_spaces': total_spaces, 
+                                               'aggregate_available': aggregate_available, 'aggregate_total': aggregate_total})
+
+@app.post('/set_bulk_total_spaces')
+async def set_bulk_total_spaces(request: Request):
+    data = await request.json()
+    user_id = data.get('user_id')
+    spaces_data = data.get('spaces_data', []) 
+
+    if not user_id:
+        return JSONResponse(status_code=401, content={'success': False, 'error': 'Authentication required.'})
+
+    try:
+        conn = mysql.connector.connect(**DB_CONFIG)
+        cursor = conn.cursor()
+
+        # Security check - Verify ownership before updating
+        for item in spaces_data:
+            camera_id = item.get('id')
+            if not verify_camera_ownership(camera_id, user_id):
+                cursor.close()
+                conn.close()
+                return JSONResponse(status_code=403, content={'success': False, 'error': f'Permission denied for camera {camera_id}.'})
+
+        # If all checks pass, proceed with the updates
+        for item in spaces_data:
+            camera_id = item.get('id')
+            total_spaces = item.get('spaces')
+            if camera_id is not None and isinstance(total_spaces, int) and total_spaces >= 0:
+                cursor.execute("UPDATE cameras SET total_spaces = %s WHERE id = %s", (total_spaces, camera_id))
+                
+                if camera_id in video_detectors:
+                    with detector_lock:
+                        video_detectors[camera_id].total_spaces = total_spaces
+                        video_detectors[camera_id].available_slots = total_spaces
+        
+        conn.commit()
+        cursor.close()
+        conn.close()
+        return JSONResponse(content={'success': True})
+    
+    except mysql.connector.Error as err:
+        return JSONResponse(status_code=500, content={'success': False, 'error': f'Database error: {err}'})
 
 def get_aggregate_stats():
     total_spaces_all = 0

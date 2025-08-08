@@ -376,7 +376,6 @@
                 if (!userMenu.classList.contains('hidden')) userMenu.classList.add('hidden');
             });
 
-            manageCamBtn.addEventListener('click', stopStream);
             logoutBtn.addEventListener('click', logout);
             changeAccountBtn.addEventListener('click', logout);
 
@@ -472,14 +471,17 @@
                         }
 
                         const aggregateTotal = data.aggregate_total;
-                        const occupiedSpaces = aggregateTotal > 0 ? aggregateTotal - data.aggregate_available : 0;
+                        const aggregateAvailableDisplay = Math.min(Math.max(data.aggregate_available, 0), aggregateTotal);
+                        const occupiedSpaces = aggregateTotal > 0 ? aggregateTotal - aggregateAvailableDisplay : 0;
                         const occupancyPercent = aggregateTotal > 0 ? Math.round((occupiedSpaces / aggregateTotal) * 100) : 0;
 
-                        aggregateAvailableEl.textContent = data.aggregate_available;
+                        aggregateAvailableEl.textContent = aggregateAvailableDisplay;
                         aggregateTotalEl.textContent = aggregateTotal;
 
                         totalSpacesEl.textContent = data.total_spaces;
-                        availableSpacesEl.textContent = data.available_slots;
+                        const availableSlotsDisplay = Math.min(Math.max(data.available_slots, 0), data.total_spaces);
+                        availableSpacesEl.textContent = availableSlotsDisplay;
+
                         occupancyPercentEl.textContent = `${occupancyPercent}%`;
                         occupancyBarEl.style.width = `${occupancyPercent}%`;
 
