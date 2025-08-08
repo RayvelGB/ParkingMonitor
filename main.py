@@ -133,7 +133,8 @@ def start_all_detectors():
         conn.close()
 
         for camera in all_cameras:
-            start_single_detector(camera['id'], camera['stream_url'], camera['mode'], camera['camera_name'], camera['total_spaces'])
+            if camera['id'] not in video_detectors:
+                start_single_detector(camera['id'], camera['stream_url'], camera['mode'], camera['camera_name'], camera['total_spaces'])
         print(f'Completed startup. {len(video_detectors)} detectors are running.')
 
     except mysql.connector.Error as err:
@@ -410,7 +411,7 @@ def handle_crossing_event(source_id: str, event_type: str):
             log = f'[{timestamp}] {source_detector.camera_name} (ENTRY)'
             source_detector.log_messages.append(log)
         
-        # Mode 3: Add a space for this camera AND erase one from a linked camera
+        # Mode 3: Add a space for target camera AND erase one from this camera
         elif mode == 'increment_target_decrement_self':
             if event_type == 'ENTRY':
                 source_detector.available_slots = source_detector.available_slots - 1

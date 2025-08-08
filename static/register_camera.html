@@ -242,6 +242,11 @@
                         return;
                     }
                     
+                    registerBtn.disabled = true; // Prevent accidental double-clicks
+                    setTimeout(() => {
+                        registerBtn.disabled = false;
+                    }, 2000);
+
                     setStatus('Registering...', 'info');
                     fetch('/register_camera', {
                         method: 'POST',
@@ -277,6 +282,11 @@
                         setStatus('Both Source and Target Camera IDs are required.', 'error');
                         return;
                     }
+
+                    linkCamerasBtn.disabled = true;
+                    setTimeout(() => {
+                        linkCamerasBtn.disabled = false;
+                    }, 2000)
 
                     setStatus('Linking cameras...', 'info');
                     fetch('/link_cameras', {
