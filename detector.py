@@ -86,16 +86,16 @@ class VideoDetector:
                 self.detection_threshold = settings.get('detection_threshold', 0.35)
                 print(f"[{time.strftime('%H:%M:%S')}] Loaded settings: DET={self.detection_threshold}")
 
-            cursor.execute("SELECT points, zone_name FROM bounding_boxes WHERE camera_id = %s ORDER BY box_index ASC", (self.camera_id,))
+            cursor.execute("SELECT points FROM bounding_boxes WHERE camera_id = %s ORDER BY box_index ASC", (self.camera_id,))
             result = cursor.fetchall()
 
-            new_parking_data = [{'points': json.loads(row['points']), 'zone': row['zone_name']} for row in result]
+            new_parking_data = [{'points': json.loads(row['points'])} for row in result]
 
             if new_parking_data != self.parking_boxes_data:
                 print(f"[{time.strftime('%H:%M:%S')}] Change in bounding boxes detected. Resetting state.")
 
                 if result:
-                    self.parking_boxes_data = [{'points': json.loads(row['points']), 'zone': row['zone_name']} for row in result]
+                    self.parking_boxes_data = [{'points': json.loads(row['points'])} for row in result]
                     self.parking_boxes = [item['points'] for item in self.parking_boxes_data]
                 else:
                     self.parking_boxes_data = []

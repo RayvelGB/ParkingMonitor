@@ -93,7 +93,6 @@ def createDB_and_tables():
                 id INT AUTO_INCREMENT PRIMARY KEY,
                 camera_id VARCHAR(36),
                 box_index INT,
-                zone_name VARCHAR(255),
                 points TEXT,
                        
                 FOREIGN KEY (camera_id) REFERENCES cameras (id),
@@ -549,18 +548,12 @@ async def save_boxes(camera_id: str, request: Request):
         
         for index, space_data in enumerate(boxes_data):
             points = []
-            zone_name = None
-            
-            if isinstance(space_data, list):
-                points = space_data # Data from picker.html
-            elif isinstance(space_data, dict):
-                points = space_data.get('points') # Data from zone_picker.html
-                zone_name = space_data.get('zone') # -> NOT USED FOR TRIPWIRE DETECTION
+            points = space_data.get('points') # Data from picker.html
 
             if points:
                 points_json = json.dumps(points)
-                query = "INSERT INTO bounding_boxes (camera_id, box_index, points, zone_name) VALUES (%s, %s, %s, %s)"
-                cursor.execute(query, (camera_id, index, points_json, zone_name))
+                query = "INSERT INTO bounding_boxes (camera_id, box_index, points) VALUES (%s, %s, %s)"
+                cursor.execute(query, (camera_id, index, points_json))
         
         conn.commit()
         cursor.close()
@@ -581,12 +574,12 @@ def get_boxes(camera_id: str, user_id: int):
     try:
         conn = mysql.connector.connect(**DB_CONFIG)
         cursor = conn.cursor(dictionary=True)
-        cursor.execute("SELECT points, zone_name FROM bounding_boxes WHERE camera_id = %s ORDER BY box_index ASC", (camera_id,))
+        cursor.execute("SELECT points FROM bounding_boxes WHERE camera_id = %s ORDER BY box_index ASC", (camera_id,))
         results = cursor.fetchall()
         cursor.close()
         conn.close()
 
-        reconstructed_boxes = [{"points": json.loads(row['points']), "zone": row['zone_name']} for row in results]
+        reconstructed_boxes = [{"points": json.loads(row['points'])} for row in results]
         return JSONResponse(content={'bounding_boxes': reconstructed_boxes})
     
     except mysql.connector.Error as err:

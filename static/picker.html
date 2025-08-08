@@ -235,7 +235,7 @@
                 currentPolygon.push([x, y]);
                 if (currentPolygon.length === 4) {
                     // FIX: Push a new object, not just the points
-                    parkingSpaces.push({ points: currentPolygon, zone: null });
+                    parkingSpaces.push({ points: currentPolygon });
                     currentPolygon = [];
                 }
                 redraw();
