@@ -39,7 +39,7 @@
             <div class="flex items-center mb-4 md:mb-0">
                 <i class="fas fa-draw-polygon text-blue-500 text-3xl mr-3"></i>
                 <h1 class="text-2xl md:text-3xl font-bold bg-gradient-to-r from-blue-400 to-blue-600 bg-clip-text text-transparent pb-1">
-                    Edit Parking Spaces
+                    Edit Detection Lines
                 </h1>
             </div>
             <div class="flex items-center space-x-4">
@@ -68,11 +68,26 @@
         </header>
 
         <!-- Main Content -->
+        <!-- Main Content -->
         <main class="text-center">
              <div class="bg-gray-800 rounded-xl shadow-xl p-8 w-full max-w-4xl mx-auto">
                 <p id="status" class="text-gray-400 mb-4 text-lg">Loading camera frame...</p>
                 <div class="canvas-container inline-block">
                     <canvas id="canvas"></canvas>
+                </div>
+                <!-- FIX: Added Mode Selection -->
+                <div class="my-6">
+                    <label class="block text-lg font-medium text-gray-300 mb-2">Set Mode for Next Line</label>
+                    <div class="flex justify-center space-x-6 bg-gray-700 p-2 rounded-lg max-w-sm mx-auto">
+                        <div class="flex items-center">
+                            <input id="mode-entry" name="box-mode" type="radio" value="entry" checked class="h-4 w-4 text-green-500 bg-gray-600 border-gray-500 focus:ring-green-500">
+                            <label for="mode-entry" class="ml-2 block text-sm font-medium text-green-400">Entry Line (Green)</label>
+                        </div>
+                        <div class="flex items-center">
+                            <input id="mode-exit" name="box-mode" type="radio" value="exit" class="h-4 w-4 text-red-500 bg-gray-600 border-gray-500 focus:ring-red-500">
+                            <label for="mode-exit" class="ml-2 block text-sm font-medium text-red-400">Exit Line (Red)</label>
+                        </div>
+                    </div>
                 </div>
                 <div class="mt-6 flex justify-center items-center gap-4 flex-wrap">
                     <button id="undo-btn" class="bg-gray-600 hover:bg-gray-700 px-5 py-2 rounded-lg flex items-center transition">
@@ -81,7 +96,7 @@
                     <button id="clear-btn" class="bg-red-600 hover:bg-red-700 px-5 py-2 rounded-lg flex items-center transition">
                         <i class="fas fa-trash mr-2"></i> Clear All
                     </button>
-                    <button id="save-btn" class="bg-green-600 hover:bg-green-700 px-5 py-2 rounded-lg flex items-center transition">
+                    <button id="save-btn" class="bg-blue-600 hover:bg-blue-700 px-5 py-2 rounded-lg flex items-center transition">
                         <i class="fas fa-save mr-2"></i> Save & Finish
                     </button>
                 </div>
@@ -174,10 +189,8 @@
 
             // --- Canvas and Data Logic ---
             fetch(`/capture_frame/${camera_id}?user_id=${user.user_id}`)
-                .then(response => {
-                    if (!response.ok) throw new Error('Failed to fetch frame. Check permissions.');
-                    return response.blob();
-                })
+                fetch(`/capture_frame/${camera_id}?user_id=${user.user_id}`)
+                .then(response => response.blob())
                 .then(blob => {
                     image.src = URL.createObjectURL(blob);
                     image.onload = () => {
@@ -197,32 +210,39 @@
                     statusEl.textContent = err.message;
                 });
 
+            function getSelectedMode() {
+                return document.querySelector('input[name="box-mode"]:checked').value;
+            }
+
             function redraw() {
+                if (!image.src) return;
                 ctx.drawImage(image, 0, 0);
-                ctx.strokeStyle = '#22c55e';
-                ctx.lineWidth = 2;
-                // FIX: Access the .points property of each space object
+                
+                // Draw existing polygons with color based on their mode
                 parkingSpaces.forEach(space => {
-                    const points = space.points;
+                    ctx.strokeStyle = space.mode === 'entry' ? '#22c55e' : '#ef4444'; // Green for entry, Red for exit
+                    ctx.lineWidth = 3;
                     ctx.beginPath();
-                    ctx.moveTo(points[0][0], points[0][1]);
-                    for (let i = 1; i < points.length; i++) ctx.lineTo(points[i][0], points[i][1]);
+                    ctx.moveTo(space.points[0][0], space.points[0][1]);
+                    for (let i = 1; i < space.points.length; i++) ctx.lineTo(space.points[i][0], space.points[i][1]);
                     ctx.closePath();
                     ctx.stroke();
                 });
-                ctx.strokeStyle = '#3b82f6';
+
+                // Draw the polygon currently being created
+                ctx.strokeStyle = '#3b82f6'; // Blue for drawing
+                ctx.lineWidth = 2;
                 ctx.beginPath();
                 currentPolygon.forEach(([x, y], i) => (i === 0) ? ctx.moveTo(x, y) : ctx.lineTo(x, y));
                 ctx.stroke();
-                ctx.fillStyle = '#ef4444';
-                // FIX: Combine the current polygon with the points from the existing spaces
-                const allPoints = [...parkingSpaces.map(s => s.points), currentPolygon];
-                allPoints.forEach(poly => {
-                    poly.forEach(([x, y]) => {
-                        ctx.beginPath();
-                        ctx.arc(x, y, 5, 0, 2 * Math.PI);
-                        ctx.fill();
-                    });
+
+                // Draw all points
+                ctx.fillStyle = '#ffffff';
+                const allPoints = [...parkingSpaces.flatMap(s => s.points), ...currentPolygon];
+                allPoints.forEach(([x, y]) => {
+                    ctx.beginPath();
+                    ctx.arc(x, y, 5, 0, 2 * Math.PI);
+                    ctx.fill();
                 });
             }
 
@@ -232,10 +252,12 @@
                 const scaleY = canvas.height / rect.height;
                 const x = (e.clientX - rect.left) * scaleX;
                 const y = (e.clientY - rect.top) * scaleY;
+                
                 currentPolygon.push([x, y]);
+                
                 if (currentPolygon.length === 4) {
-                    // FIX: Push a new object, not just the points
-                    parkingSpaces.push({ points: currentPolygon });
+                    const mode = getSelectedMode();
+                    parkingSpaces.push({ points: currentPolygon, mode: mode });
                     currentPolygon = [];
                 }
                 redraw();
@@ -276,18 +298,17 @@
                 fetch(`/save_bounding_boxes/${camera_id}`, {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
-                    // FIX: Send the array of objects, which is now the correct format
                     body: JSON.stringify({boxes: parkingSpaces, user_id: user.user_id})
                 })
                 .then(response => response.json())
                 .then(result => {
                     if (result.success) {
-                        statusEl.textContent = 'Saved successfully! Redirecting to dashboard...';
+                        statusEl.textContent = 'Saved successfully! Redirecting...';
                         setTimeout(() => {
                            window.location.href = `/stream.html?camera_id=${camera_id}`;
                         }, 1500);
                     } else {
-                        statusEl.textContent = 'Failed to save spaces. Please try again.';
+                        statusEl.textContent = 'Failed to save spaces.';
                     }
                 })
                 .catch(err => {

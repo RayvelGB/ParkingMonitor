@@ -24,8 +24,7 @@ class VideoDetector:
         self.camera_id = camera_id
         self.camera_name = 'Unnamed'
         self.event_callback = event_callback
-        self.mode = 'default'
-        
+
         self.raw_frame = None
         self.processed_frame = None
         self.frame_lock = Lock()
@@ -40,7 +39,6 @@ class VideoDetector:
         self.model = self.load_model()
         
         self.parking_boxes_data = []
-        self.parking_boxes = []
         self.total_spaces = 0
         self.slot_status = {}
         self.log_messages = []
@@ -86,28 +84,16 @@ class VideoDetector:
                 self.detection_threshold = settings.get('detection_threshold', 0.35)
                 print(f"[{time.strftime('%H:%M:%S')}] Loaded settings: DET={self.detection_threshold}")
 
-            cursor.execute("SELECT points FROM bounding_boxes WHERE camera_id = %s ORDER BY box_index ASC", (self.camera_id,))
+            cursor.execute("SELECT points, mode FROM bounding_boxes WHERE camera_id = %s ORDER BY box_index ASC", (self.camera_id,))
             result = cursor.fetchall()
 
-            new_parking_data = [{'points': json.loads(row['points'])} for row in result]
+            new_parking_data = [{'points': json.loads(row['points']), 'mode': row['mode']} for row in result]
 
             if new_parking_data != self.parking_boxes_data:
                 print(f"[{time.strftime('%H:%M:%S')}] Change in bounding boxes detected. Resetting state.")
+                self.parking_boxes_data = new_parking_data
+                self.slot_status = {idx: {} for idx in range(len(self.parking_boxes_data))}
 
-                if result:
-                    self.parking_boxes_data = [{'points': json.loads(row['points'])} for row in result]
-                    self.parking_boxes = [item['points'] for item in self.parking_boxes_data]
-                else:
-                    self.parking_boxes_data = []
-                    self.parking_boxes = []
-
-                self.slot_status = {
-                    idx: {
-                        'entry': False, 
-                        'last_changed': time.time(), 
-                        'entry_time': None
-                    } 
-                    for idx in range(len(self.parking_boxes))}
             else:
                 print(f"[{time.strftime('%H:%M:%S')}] Settings updated. Preserving current occupancy state.")
 
@@ -195,9 +181,11 @@ class VideoDetector:
             car_indices = np.isin(labels, [4, 5, 6, 9])
             boxes = boxes[car_indices]
 
-            for idx, points in enumerate(self.parking_boxes):
+            for idx, box_data in enumerate(self.parking_boxes_data):
+                points = box_data['points']
+                box_mode = box_data['mode']
+
                 is_occupied_now = any(self.check_intersection((b[0], b[1], b[2], b[3]), points) for b in boxes)
-                
                 previous_state = self.slot_status.get(idx, {}).get('occupied', False)
                 
                 # Event fires only on the frame the state changes
@@ -205,7 +193,7 @@ class VideoDetector:
                     if idx not in self.slot_status: self.slot_status[idx] = {}
                     self.slot_status[idx]['occupied'] = True
 
-                    if self.mode != 'increment_self':
+                    if box_mode == 'entry':
                         if self.event_callback:
                             self.event_callback(self.camera_id, 'ENTRY')
 
@@ -213,7 +201,7 @@ class VideoDetector:
                     if idx not in self.slot_status: self.slot_status[idx] = {}
                     self.slot_status[idx]['occupied'] = False
 
-                    if self.mode != 'decrement_self':
+                    if box_mode == 'exit':
                         if self.event_callback:
                             self.event_callback(self.camera_id, 'EXIT')
 

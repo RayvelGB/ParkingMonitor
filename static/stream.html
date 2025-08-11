@@ -103,28 +103,6 @@
                             <input id="detection-slider" type="range" min="0.1" max="0.9" step="0.05" value="0.35" class="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer">
                         </div>
 
-                        <!-- Camera Modes -->
-                        <div class="mb-4">
-                            <label class="block text-sm font-medium text-gray-300 mb-2">Camera Mode</label>
-                            <div class="space-y-2">
-                                <!-- Removes from self, but adds to the connecting camera when car crosses line -->
-                                <div class="flex items-center">
-                                    <input id="mode-default" name="camera-mode" type="radio" value="increment_target_decrement_self" class="h-4 w-4 text-blue-600 bg-gray-700 border-gray-600 focus:ring-blue-500">
-                                    <label for="mode-default" class="ml-2 block text-sm text-gray-300">Default (Entry & Exit)</label>
-                                </div>
-                                <!-- Removes available slots from self when car crosses box line -->
-                                <div class="flex items-center">
-                                    <input id="mode-entry" name="camera-mode" type="radio" value="decrement_self" class="h-4 w-4 text-blue-600 bg-gray-700 border-gray-600 focus:ring-blue-500">
-                                    <label for="mode-entry" class="ml-2 block text-sm text-gray-300">Entry Only</label>
-                                </div>
-                                <!-- Adds available slots to self when car crosses box line -->
-                                <div class="flex items-center">
-                                    <input id="mode-exit" name="camera-mode" type="radio" value="increment_self" class="h-4 w-4 text-blue-600 bg-gray-700 border-gray-600 focus:ring-blue-500">
-                                    <label for="mode-exit" class="ml-2 block text-sm text-gray-300">Exit Only</label>
-                                </div>
-                            </div>
-                        </div>
-
                         <button id="save-settings-btn" class="w-full bg-blue-600 hover:bg-blue-700 py-2 rounded-lg flex items-center justify-center transition">
                             Save Settings
                         </button>
@@ -180,32 +158,6 @@
             <div class="space-y-6">
                 <!-- All Camera Occupancy -->
                 <div class="bg-gray-800 rounded-xl p-6 shadow-xl">
-                    <h2 class="text-lg font-semibold mb-4 flex items-center">
-                        <i class="fas fa-chart-pie mr-2 mt-0.5 text-blue-400"></i>
-                        Overall Occupancy
-                    </h2>
-                    <div class="grid grid-cols-2 gap-4 mb-6">
-                        <div class="bg-gray-700 rounded-lg p-4 text-center">
-                            <div id="aggregate-total-spaces" class="text-3xl font-bold text-purple-400">--</div>
-                            <div class="text-sm text-gray-400">Total Spaces</div>
-                        </div>
-                        <div class="bg-gray-700 rounded-lg p-4 text-center">
-                            <div id="aggregate-available-spaces" class="text-3xl font-bold text-green-400">--</div>
-                            <div class="text-sm text-gray-400">Available</div>
-                        </div>
-                    </div>
-                    <div class="relative pt-1">
-                        <div class="flex items-center justify-between mb-1">
-                            <span class="text-xs font-medium text-blue-300">Occupancy</span>
-                            <span id="occupancy-percent" class="text-xs font-medium text-blue-300">0%</span>
-                        </div>
-                        <div class="overflow-hidden h-2 mb-4 text-xs flex rounded bg-gray-700">
-                            <div id="occupancy-bar" style="width:0%" class="shadow-none flex flex-col text-center whitespace-nowrap text-white justify-center bg-gradient-to-r from-blue-500 to-blue-600"></div>
-                        </div>
-                    </div>
-                </div>
-                <!-- Only show occupancy for current camera in feed -->
-                 <div class="bg-gray-800 rounded-xl p-6 shadow-xl">
                     <h2 class="text-lg font-semibold mb-4">
                         <i class="fas fa-chart-area mr-2 mt-0.5 text-blue-400"></i>
                         Current Camera Stats
@@ -218,6 +170,15 @@
                         <div class="bg-gray-700 rounded-lg p-4 text-center">
                             <div id="available-spaces" class="text-3xl font-bold text-green-400">--</div>
                             <div class="text-sm text-gray-400">Available</div>
+                        </div>
+                    </div>
+                    <div class="relative pt-1">
+                        <div class="flex items-center justify-between mb-1">
+                            <span class="text-xs font-medium text-blue-300">Occupancy</span>
+                            <span id="occupancy-percent" class="text-xs font-medium text-blue-300">0%</span>
+                        </div>
+                        <div class="overflow-hidden h-2 mb-4 text-xs flex rounded bg-gray-700">
+                            <div id="occupancy-bar" style="width:0%" class="shadow-none flex flex-col text-center whitespace-nowrap text-white justify-center bg-gradient-to-r from-blue-500 to-blue-600"></div>
                         </div>
                     </div>
                 </div>
@@ -294,8 +255,6 @@
             const totalSpacesEl = document.getElementById('total-spaces');
             const occupancyPercentEl = document.getElementById('occupancy-percent');
             const occupancyBarEl = document.getElementById('occupancy-bar');
-            const aggregateTotalEl = document.getElementById('aggregate-total-spaces');
-            const aggregateAvailableEl = document.getElementById('aggregate-available-spaces');
             const currentTimeEl = document.getElementById('current-time');
             const cameraIdDisplayEl = document.getElementById('camera-id-display');
             const lastUpdatedEl = document.getElementById('last-updated');
@@ -323,9 +282,6 @@
             const settingsMenu = document.getElementById('settings-menu');
             const detectionSlider = document.getElementById('detection-slider');
             const detectionValue = document.getElementById('detection-value');
-            const modeDefaultRadio = document.getElementById('mode-default');
-            const modeEntryRadio = document.getElementById('mode-entry');
-            const modeExitRadio = document.getElementById('mode-exit');
             const saveSettingsBtn = document.getElementById('save-settings-btn');
             const settingsStatus = document.getElementById('settings-status');
 
@@ -470,16 +426,12 @@
                             return;
                         }
 
-                        const aggregateTotal = data.aggregate_total;
-                        const aggregateAvailableDisplay = Math.min(Math.max(data.aggregate_available, 0), aggregateTotal);
-                        const occupiedSpaces = aggregateTotal > 0 ? aggregateTotal - aggregateAvailableDisplay : 0;
-                        const occupancyPercent = aggregateTotal > 0 ? Math.round((occupiedSpaces / aggregateTotal) * 100) : 0;
+                        const totalSpaces = data.total_spaces;
+                        const availableSlotsDisplay = Math.min(Math.max(data.available_slots, 0), totalSpaces);
+                        const occupiedSpaces = totalSpaces > 0 ? totalSpaces - availableSlotsDisplay : 0;
+                        const occupancyPercent = totalSpaces > 0 ? Math.round((occupiedSpaces / totalSpaces) * 100) : 0;
 
-                        aggregateAvailableEl.textContent = aggregateAvailableDisplay;
-                        aggregateTotalEl.textContent = aggregateTotal;
-
-                        totalSpacesEl.textContent = data.total_spaces;
-                        const availableSlotsDisplay = Math.min(Math.max(data.available_slots, 0), data.total_spaces);
+                        totalSpacesEl.textContent = totalSpaces;
                         availableSpacesEl.textContent = availableSlotsDisplay;
 
                         occupancyPercentEl.textContent = `${occupancyPercent}%`;
@@ -574,18 +526,6 @@
                         detectionSlider.value = settings.detection_threshold;
                         detectionValue.textContent = parseFloat(settings.detection_threshold).toFixed(2);
                     });
-                
-                fetch(`/get_camera_details/${camId}?user_id=${user.user_id}`)
-                    .then(res => res.json())
-                    .then(details => {
-                        if (details.mode === 'decrement_self') {
-                            modeEntryRadio.checked = true;
-                        } else if (details.mode === 'increment_self') {
-                            modeExitRadio.checked = true;
-                        } else {
-                            modeDefaultRadio.checked = true;
-                        }
-                    });
             }
 
             saveSettingsBtn.addEventListener('click', () => {
@@ -593,13 +533,6 @@
                     return;
                 }
                 settingsStatus.textContent = 'Saving...';
-
-                let selectedMode = 'increment_target_decrement_self';
-                if (modeEntryRadio.checked) {
-                    selectedMode = 'decrement_self';
-                } else if (modeExitRadio.checked) {
-                    selectedMode = 'increment_self';
-                }
 
                 const saveThresholdPromise = fetch(`/save_settings/${currentCameraId}`, {
                     method: 'POST',
@@ -610,18 +543,9 @@
                     })
                 }).then(res => res.json());
 
-                const saveModePromise = fetch(`/set_camera_mode/${currentCameraId}`, {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({
-                        user_id: user.user_id,
-                        mode: selectedMode
-                    })
-                }).then(res => res.json());
-
-                Promise.all([saveThresholdPromise, saveModePromise])
-                    .then(([thresholdResult, modeResult]) => {
-                        if (thresholdResult.success && modeResult.success) {
+                Promise.all([saveThresholdPromise])
+                    .then(([thresholdResult]) => {
+                        if (thresholdResult.success) {
                             settingsStatus.textContent = 'Settings saved successfully!';
                         } else {
                             settingsStatus.textContent = 'Error saving settings.';
