@@ -30,10 +30,17 @@ def on_startup():
 
 # -- Database Configuration --
 DB_CONFIG = {
-    'host':'localhost',
+    'host': '192.168.0.29',
     'user': 'root',
-    'password': '',
+    'password': '1234',
     'database': 'entry_db'
+}
+
+INFO_DB_CONFIG = {
+    'host': '192.168.0.29',
+    'user': 'root',
+    'password': '1234',
+    'database': 'sap8di'
 }
 
 # Setup database
@@ -46,8 +53,8 @@ def createDB_and_tables():
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS users (
                 id INT AUTO_INCREMENT PRIMARY KEY,
-                username VARCHAR(255) UNIQUE NOT NULL,
-                hashed_password VARCHAR(255) NOT NULL
+                username VARCHAR(191) UNIQUE NOT NULL,
+                hashed_password VARCHAR(191) NOT NULL
             )
         """)
 
@@ -56,8 +63,8 @@ def createDB_and_tables():
             CREATE TABLE IF NOT EXISTS cameras (
                 id VARCHAR(36) PRIMARY KEY,
                 user_id INT,
-                camera_name VARCHAR(255) NOT NULL,
-                stream_url VARCHAR(1024) NOT NULL,
+                camera_name VARCHAR(50) NOT NULL,
+                stream_url VARCHAR(191) NOT NULL,
                 mode VARCHAR(101) DEFAULT 'increment_self',
                 total_spaces INT DEFAULT 0,
                        
@@ -105,7 +112,7 @@ def createDB_and_tables():
             CREATE TABLE IF NOT EXISTS logs (
                 id INT AUTO_INCREMENT PRIMARY KEY,
                 camera_id VARCHAR(36),
-                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+                timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP(),
                 message VARCHAR(255),
                        
                 FOREIGN KEY (camera_id) REFERENCES cameras (id)
@@ -116,6 +123,33 @@ def createDB_and_tables():
         conn.commit()
         cursor.close()
         conn.close()
+
+        conn_info = mysql.connector.connect(**INFO_DB_CONFIG)
+        cursor = conn_info.cursor()
+
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS dgroup (
+                ID INT AUTO_INCREMENT PRIMARY KEY,
+                zgroup VARCHAR(50),
+                ip_kamera VARCHAR(50) UNIQUE,
+                tgl DATE,
+                jam TIME,
+                jml INT,
+                cup INT,
+                cdw INT,
+                adj INT,
+                `default` INT,
+                status INT,
+                isFull INT,
+                min INT,
+                zdesc VARCHAR(50) UNIQUE
+            )
+        """)
+
+        conn_info.commit()
+        cursor.close()
+        conn_info.close()
+
         print('Database and tables are ready.')
     except mysql.connector.Error as err:
         print(f'Error creating database and tables: {err}')
@@ -404,12 +438,15 @@ def handle_crossing_event(source_id: str, event_type: str):
             log = f'[{timestamp}] {source_detector.camera_name} (EXIT)'
             source_detector.log_messages.append(log)
             save_log_to_db(source_id, log)
+            save_to_info_db(source_id, event_type)
         
         # Mode 2: Decrement Self (Entry Only Camera)
         elif mode == 'decrement_self' and event_type == 'ENTRY':
             source_detector.available_slots = source_detector.available_slots - 1
             log = f'[{timestamp}] {source_detector.camera_name} (ENTRY)'
             source_detector.log_messages.append(log)
+            save_log_to_db(source_id, log)
+            save_to_info_db(source_id, event_type)
         
         # Mode 3: Add a space for target camera AND erase one from this camera
         elif mode == 'increment_target_decrement_self':
@@ -419,6 +456,7 @@ def handle_crossing_event(source_id: str, event_type: str):
                 print(f'Available Slots (SOURCE): {source_detector.available_slots}')
                 source_detector.log_messages.append(log_source)
                 save_log_to_db(source_id, log_source)
+                save_to_info_db(source_id, event_type)
 
                 target_id = camera_links.get(source_id)
                 if target_id:
@@ -430,6 +468,7 @@ def handle_crossing_event(source_id: str, event_type: str):
                         print(f'Available Slots (TARGET): {target_detector.available_slots}')
                         target_detector.log_messages.append(log_target)
                         save_log_to_db(target_id, log_target)
+                        save_to_info_db(target_id, event_type='EXIT')
                 else:
                     print('Target camera not found.')
 
@@ -644,6 +683,54 @@ def get_settings(camera_id: str, user_id: int):
         return JSONResponse(status_code=500, content={'error': f'Database error: {err}'})
 
 # -- Logging and Information Display Endpoints --
+def get_camera_ip(url):
+    no_proto = url.split('://', 1)[1]
+    if '@' in no_proto:
+        no_proto = no_proto.split('@', 1)[1]
+
+    camera_ip = no_proto.split(':')[0].split('/')[0]
+
+    return camera_ip
+
+def save_to_info_db(camera_id, event_type):
+    detector = video_detectors.get(camera_id)
+    if not detector:
+        return
+    
+    try:
+        conn = mysql.connector.connect(**INFO_DB_CONFIG)
+        cursor = conn.cursor()
+
+        zdesc = detector.camera_name
+        current_date =  time.strftime("%Y-%m-%d")
+        current_time = time.strftime("%H:%M:%S")
+
+        sorted_cameras = sorted(video_detectors.items(), key=lambda x: str(x[0]))
+        zgroup_map = {cam_id: f"{i:02}" for i, (cam_id, _) in enumerate(sorted_cameras, start=1)}
+        
+        zgroup = zgroup_map[camera_id]
+        cam_ip = get_camera_ip(detector.rtsp_url)
+
+        jml =  detector.total_spaces
+        cup = 1 if event_type == 'ENTRY' else 0
+        cdw = 1 if event_type == 'EXIT' else 0
+
+        query = """
+            INSERT INTO dgroup (zgroup, ip_kamera, tgl, jam, jml, cup, cdw, adj, `default`, status, isFull, min, zdesc)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, 0, 1, 0, 1, 0, %s)
+            ON DUPLICATE KEY UPDATE
+                cup = cup + VALUES(cup),
+                cdw = cdw + VALUES(cdw)
+        """
+        cursor.execute(query, (zgroup, cam_ip, current_date, current_time, jml, cup, cdw, zdesc))
+
+        conn.commit()
+        cursor.close()
+        conn.close()
+        print(f"Updated info table for camera: {detector.camera_name} ({event_type})")
+
+    except mysql.connector.Error as err:
+        print(f"Error saving to info table: {err}")
 
 def save_log_to_db(camera_id, log_message):
     try:
