@@ -114,6 +114,27 @@ def createDB_and_tables():
 
         """)
 
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS info (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                ip_kamera VARCHAR(50),
+                zone_id INT UNIQUE,
+                keterangan VARCHAR(101),
+                tgl DATE,
+                jam TIME,
+                jml INT,
+                cup INT,
+                cdw INT,
+                adj INT,
+                `default` INT,
+                status INT,
+                isFull INT,
+                min INT,
+
+                FOREIGN KEY (zone_id) REFERENCES zones (id)
+            )
+        """)
+
         conn.commit()
         cursor.close()
         conn.close()
@@ -374,27 +395,25 @@ def handle_crossing_event(camera_id: str, box_index: str, event_type: str):
         if not detector:
             return
 
-        timestamp = time.strftime('%H:%M:%S')
-
         if box_index < len(detector.parking_boxes_data):
             box_data = detector.parking_boxes_data[box_index]
             zone_id = box_data.get('zone_id')
+            timestamp = time.strftime('%H:%M:%S')
 
             if zone_id and zone_id in detector.zone_counts:
-                # Mode 1: Increment Self (Exit Only Camera)
-                if event_type == 'EXIT':
-                    detector.zone_counts[zone_id]['available'] = detector.zone_counts[zone_id]['available'] + 1
-                    log = f'[{timestamp}] {detector.camera_name} (EXIT)'
-                    detector.log_messages.append(log)
-                    save_log_to_db(camera_id, log)
-                
-                # Mode 2: Decrement Self (Entry Only Camera)
-                elif event_type == 'ENTRY':
-                    detector.zone_counts[zone_id]['available'] = detector.zone_counts[zone_id]['available'] - 1
-                    log = f'[{timestamp}] {detector.camera_name} (ENTRY)'
-                    detector.log_messages.append(log)
-                    save_log_to_db(camera_id, log)
+                zone_name = detector.zone_counts[zone_id]['name']
 
+                # Mode 1: Increment Self (Exit Only Camera)
+                if event_type == 'ENTRY':
+                    detector.zone_counts[zone_id]['available'] = detector.zone_counts[zone_id]['available'] - 1
+                    log = f'[{timestamp}] {zone_name} (ENTRY)'
+
+                elif event_type == 'EXIT':
+                    detector.zone_counts[zone_id]['available'] = detector.zone_counts[zone_id]['available'] + 1
+                    log = f'[{timestamp}] {zone_name} (EXIT)'
+                
+                save_log_to_db(camera_id, log)
+                save_to_info_db(camera_id, zone_id, event_type)
                 print(f"Event: Cam {camera_id} -> Zone {zone_id} -> {event_type}. New count: {detector.zone_counts[zone_id]['available']}")
 
 # -- Bounding Box Endpoints --
@@ -446,11 +465,12 @@ async def save_boxes(camera_id: str, request: Request):
         for index, space_data in enumerate(boxes_data):
             points = space_data.get('points') # Data from picker.html
             mode = space_data.get('mode', 'entry')
+            zone_id = space_data.get('zone_id')
 
             if points:
                 points_json = json.dumps(points)
-                query = "INSERT INTO bounding_boxes (camera_id, box_index, points, mode) VALUES (%s, %s, %s, %s)"
-                cursor.execute(query, (camera_id, index, points_json, mode))
+                query = "INSERT INTO bounding_boxes (camera_id, box_index, points, mode, zone_id) VALUES (%s, %s, %s, %s, %s)"
+                cursor.execute(query, (camera_id, index, points_json, mode, zone_id))
         
         conn.commit()
         cursor.close()
@@ -579,7 +599,8 @@ def get_aggregate_stats():
         for cam_id, detector in video_detectors.items():
             for zone_id, zone_data in detector.zone_counts.items():
                 total_spaces += zone_data['total']
-                available_spaces += zone_data['available']
+                space = max(0, min(zone_data['available'], zone_data['total']))
+                available_spaces += space
 
     return JSONResponse(content={'total_spaces': total_spaces, 'available_slots': available_spaces})
 
@@ -650,48 +671,49 @@ def get_camera_ip(url):
 
     return camera_ip
 
-# def save_to_info_db(camera_id, event_type):
-#     detector = video_detectors.get(camera_id)
-#     if not detector:
-#         return
+def save_to_info_db(camera_id, zone_id, event_type):
+    detector = video_detectors.get(camera_id)
+    if not detector:
+        return
     
-#     try:
-#         conn = mysql.connector.connect(**DB_CONFIG)
-#         cursor = conn.cursor()
+    try:
+        conn = mysql.connector.connect(**DB_CONFIG)
+        cursor = conn.cursor()
 
-#         zdesc = detector.camera_name
-#         current_date =  time.strftime("%Y-%m-%d")
-#         current_time = time.strftime("%H:%M:%S")
+        current_date =  time.strftime("%Y-%m-%d")
+        current_time = time.strftime("%H:%M:%S")
 
-#         sorted_cameras = sorted(video_detectors.items(), key=lambda x: str(x[0]))
-#         zgroup_map = {cam_id: f"{i:02}" for i, (cam_id, _) in enumerate(sorted_cameras, start=1)}
-        
-#         zgroup = zgroup_map[camera_id]
-#         cam_ip = get_camera_ip(detector.rtsp_url)
+        cam_ip = get_camera_ip(detector.rtsp_url)
+        keterangan = detector.camera_name +  ' ' + detector.zone_counts[zone_id]['name']
 
-#         jml =  detector.total_spaces
-#         cup = 1 if event_type == 'ENTRY' else 0
-#         cdw = 1 if event_type == 'EXIT' else 0
+        jml =  detector.zone_counts[zone_id]['total']
+        cup = 1 if event_type == 'ENTRY' else 0
+        cdw = 1 if event_type == 'EXIT' else 0
 
-#         query = """
-#             INSERT INTO dgroup (zgroup, ip_kamera, tgl, jam, jml, cup, cdw, adj, `default`, status, isFull, min, zdesc)
-#             VALUES (%s, %s, %s, %s, %s, %s, %s, 0, 1, 0, 1, 0, %s)
-#             ON DUPLICATE KEY UPDATE
-#                 cup = cup + VALUES(cup),
-#                 cdw = cdw + VALUES(cdw)
-#         """
-#         cursor.execute(query, (zgroup, cam_ip, current_date, current_time, jml, cup, cdw, zdesc))
+        query = """
+            INSERT INTO info (ip_kamera, zone_id, keterangan, tgl, jam, jml, cup, cdw, adj, `default`, status, isFull, min)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 0, 1, 0, 1, 0)
+            ON DUPLICATE KEY UPDATE
+                cup = cup + VALUES(cup),
+                cdw = cdw + VALUES(cdw)
+        """
+        cursor.execute(query, (cam_ip, zone_id, keterangan, current_date, current_time, jml, cup, cdw))
 
-#         conn.commit()
-#         cursor.close()
-#         conn.close()
-#         print(f"Updated info table for camera: {detector.camera_name} ({event_type})")
+        conn.commit()
+        cursor.close()
+        conn.close()
 
-#     except mysql.connector.Error as err:
-#         print(f"Error saving to info table: {err}")
+    except mysql.connector.Error as err:
+        print(f"Error saving to info table: {err}")
 
 def save_log_to_db(camera_id, log_message):
     try:
+        if camera_id in video_detectors:
+            video_detectors[camera_id].log_messages.append(log_message)
+
+            if len(video_detectors[camera_id].log_messages) > 50:
+                video_detectors[camera_id].log_messages.pop(0)
+
         conn = mysql.connector.connect(**DB_CONFIG)
         cursor = conn.cursor()
         query = "INSERT INTO logs (camera_id, message) VALUES (%s, %s)"

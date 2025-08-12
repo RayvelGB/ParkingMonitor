@@ -274,7 +274,7 @@
             addZoneBtn.addEventListener('click', () => {
                 const zoneName = zoneNameInput.value.trim();
                 if (zoneName) {
-                    fetch(`/create_zone/${camera_id}`, {
+                    fetch(`/create_zones/${camera_id}`, {
                         method: 'POST',
                         headers: {'Content-Type': 'application/json'},
                         body: JSON.stringify({ zone_name: zoneName, user_id: user.user_id })

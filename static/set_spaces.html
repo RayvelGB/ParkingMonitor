@@ -184,7 +184,7 @@
                     return;
                 }
                 
-                fetch(`/create_zone/${selectedCameraId}`, {
+                fetch(`/create_zones/${selectedCameraId}`, {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({ zone_name: zoneName, user_id: user.user_id })

@@ -354,21 +354,28 @@
                         zoneStatsContainer.innerHTML = '';
                         if (zones && zones.length > 0) {
                             zones.forEach(zone => {
+                                const zoneName = zone.zone_name;
+                                const totalZoneSpace = zone.total_spaces;
+                                const availableZoneDisplay = Math.min(Math.max(zone.available_spaces, 0), totalZoneSpace);
+
                                 const statCard = document.createElement('div');
                                 statCard.className = 'bg-gray-800 rounded-xl p-6 shadow-xl';
-                                statCard.innerHTML = `
-                                    <h2 class="text-lg font-semibold mb-4 text-center">${zone.zone_name}</h2>
-                                    <div class="grid grid-cols-2 gap-4">
-                                        <div class="bg-gray-700 rounded-lg p-4 text-center">
-                                            <div class="text-3xl font-bold text-blue-400">${zone.total_spaces}</div>
-                                            <div class="text-sm text-gray-400">Total Spaces</div>
+                                    statCard.innerHTML = `
+                                        <h2 class="text-lg font-semibold mb-4 text-center">
+                                            <i class="fas fa-globe mr-2 mt-0.5 text-blue-400"></i>
+                                            ${zoneName}
+                                        </h2>
+                                        <div class="grid grid-cols-2 gap-4">
+                                            <div class="bg-gray-700 rounded-lg p-4 text-center">
+                                                <div class="text-3xl font-bold text-blue-400">${totalZoneSpace}</div>
+                                                <div class="text-sm text-gray-400">Total Spaces</div>
+                                            </div>
+                                            <div class="bg-gray-700 rounded-lg p-4 text-center">
+                                                <div class="text-3xl font-bold text-green-400">${availableZoneDisplay}</div>
+                                                <div class="text-sm text-gray-400">Available</div>
+                                            </div>
                                         </div>
-                                        <div class="bg-gray-700 rounded-lg p-4 text-center">
-                                            <div class="text-3xl font-bold text-green-400">${zone.available_spaces}</div>
-                                            <div class="text-sm text-gray-400">Available</div>
-                                        </div>
-                                    </div>
-                                `;
+                                    `;
                                 zoneStatsContainer.appendChild(statCard);
                             });
                         } else {
@@ -445,6 +452,7 @@
                 nextCamBtn.disabled = currentCameraIndex === allCameras.length - 1;
 
                 fetchStats(currentCameraId);
+                statsInterval = setInterval(() => fetchStats(currentCameraId), 2000);
                 fetchLogs(currentCameraId);
                 logInterval = setInterval(() => fetchLogs(currentCameraId), 2000);
                 loadSettings(currentCameraId);
