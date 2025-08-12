@@ -57,7 +57,6 @@ def createDB_and_tables():
                 user_id INT,
                 camera_name VARCHAR(50) NOT NULL,
                 stream_url VARCHAR(191) NOT NULL,
-                total_spaces INT DEFAULT 0,
                        
                 FOREIGN KEY (user_id) REFERENCES users (id)
             )
@@ -74,6 +73,18 @@ def createDB_and_tables():
             )
         """)
 
+        # Create zones table
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS zones (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                camera_id VARCHAR(36) NOT NULL,
+                zone_name VARCHAR(255) NOT NULL,
+                total_spaces INT DEFAULT 0,
+                FOREIGN KEY (camera_id) REFERENCES cameras (id) ON DELETE CASCADE,
+                UNIQUE KEY (camera_id, zone_name)
+            )
+        """)
+
         # Create Bounding Boxes table
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS bounding_boxes (
@@ -82,8 +93,10 @@ def createDB_and_tables():
                 box_index INT,
                 points TEXT,
                 mode VARCHAR(10) DEFAULT 'entry',
+                zone_id INT,
                        
                 FOREIGN KEY (camera_id) REFERENCES cameras (id) ON DELETE CASCADE,
+                FOREIGN KEY (zone_id) REFERENCES zones (id) ON DELETE SET NULL,
                 UNIQUE KEY (camera_id, box_index)
             )
         """)
@@ -116,14 +129,14 @@ def start_all_detectors():
     try:
         conn = mysql.connector.connect(**DB_CONFIG)
         cursor = conn.cursor(dictionary=True)
-        cursor.execute("SELECT id, stream_url, camera_name, total_spaces FROM cameras")
+        cursor.execute("SELECT id, stream_url, camera_name FROM cameras")
         all_cameras = cursor.fetchall()
         cursor.close()
         conn.close()
 
         for camera in all_cameras:
             if camera['id'] not in video_detectors:
-                start_single_detector(camera['id'], camera['stream_url'], camera['camera_name'], camera['total_spaces'])
+                start_single_detector(camera['id'], camera['stream_url'], camera['camera_name'])
         print(f'Completed startup. {len(video_detectors)} detectors are running.')
 
     except mysql.connector.Error as err:
@@ -150,13 +163,11 @@ def stop_all_detectors():
     except mysql.connector.Error as err:
         print(f'Database error during startup: {err}')
 
-def start_single_detector(camera_id: str, rtsp_url: str, name: str, total_spaces: int):
+def start_single_detector(camera_id: str, rtsp_url: str, name: str):
     if camera_id not in video_detectors:
         print(f"Initializing detector for camera: {camera_id}")
         detector = VideoDetector(rtsp_url, camera_id, event_callback=handle_crossing_event)
         detector.camera_name = name
-        detector.total_spaces = total_spaces
-        detector.available_slots = total_spaces
         video_detectors[camera_id] = detector
         t = Thread(target=detector.run, daemon=True)
         t.start()
@@ -317,7 +328,7 @@ def get_cameras(user_id: int):
     try:
         conn = mysql.connector.connect(**DB_CONFIG)
         cursor = conn.cursor(dictionary=True)
-        cursor.execute("SELECT id, camera_name, total_spaces FROM cameras WHERE user_id = %s", (user_id,))
+        cursor.execute("SELECT id, camera_name FROM cameras WHERE user_id = %s", (user_id,))
         cameras = cursor.fetchall()
         cursor.close()
         conn.close()
@@ -357,28 +368,34 @@ async def delete_camera(camera_id: str, request: Request):
     
 # -- Camera Settings --
     
-def handle_crossing_event(camera_id: str, event_type: str):
+def handle_crossing_event(camera_id: str, box_index: str, event_type: str):
     with detector_lock:
         detector = video_detectors.get(camera_id)
         if not detector:
             return
 
         timestamp = time.strftime('%H:%M:%S')
-        print(f"Event from {camera_id} ({event_type})")
 
-        # Mode 1: Increment Self (Exit Only Camera)
-        if event_type == 'EXIT':
-            detector.available_slots = detector.available_slots + 1
-            log = f'[{timestamp}] {detector.camera_name} (EXIT)'
-            detector.log_messages.append(log)
-            save_log_to_db(camera_id, log)
-        
-        # Mode 2: Decrement Self (Entry Only Camera)
-        elif event_type == 'ENTRY':
-            detector.available_slots = detector.available_slots - 1
-            log = f'[{timestamp}] {detector.camera_name} (ENTRY)'
-            detector.log_messages.append(log)
-            save_log_to_db(camera_id, log)
+        if box_index < len(detector.parking_boxes_data):
+            box_data = detector.parking_boxes_data[box_index]
+            zone_id = box_data.get('zone_id')
+
+            if zone_id and zone_id in detector.zone_counts:
+                # Mode 1: Increment Self (Exit Only Camera)
+                if event_type == 'EXIT':
+                    detector.zone_counts[zone_id]['available'] = detector.zone_counts[zone_id]['available'] + 1
+                    log = f'[{timestamp}] {detector.camera_name} (EXIT)'
+                    detector.log_messages.append(log)
+                    save_log_to_db(camera_id, log)
+                
+                # Mode 2: Decrement Self (Entry Only Camera)
+                elif event_type == 'ENTRY':
+                    detector.zone_counts[zone_id]['available'] = detector.zone_counts[zone_id]['available'] - 1
+                    log = f'[{timestamp}] {detector.camera_name} (ENTRY)'
+                    detector.log_messages.append(log)
+                    save_log_to_db(camera_id, log)
+
+                print(f"Event: Cam {camera_id} -> Zone {zone_id} -> {event_type}. New count: {detector.zone_counts[zone_id]['available']}")
 
 # -- Bounding Box Endpoints --
 
@@ -454,17 +471,118 @@ def get_boxes(camera_id: str, user_id: int):
     try:
         conn = mysql.connector.connect(**DB_CONFIG)
         cursor = conn.cursor(dictionary=True)
-        cursor.execute("SELECT points, mode FROM bounding_boxes WHERE camera_id = %s ORDER BY box_index ASC", (camera_id,))
+        cursor.execute("SELECT points, zone_id, mode FROM bounding_boxes WHERE camera_id = %s ORDER BY box_index ASC", (camera_id,))
         results = cursor.fetchall()
         cursor.close()
         conn.close()
 
-        reconstructed_boxes = [{'points': json.loads(row['points']), 'mode': row['mode']} for row in results]
+        reconstructed_boxes = [{'points': json.loads(row['points']), 'zone_id': row['zone_id'], 'mode': row['mode']} for row in results]
         return JSONResponse(content={'bounding_boxes': reconstructed_boxes})
     
     except mysql.connector.Error as err:
         return JSONResponse(status_code=500, content={'error': f'Database error: {err}'})
     
+# -- Zone Management Endpoints --
+@app.post('/create_zones/{camera_id}')
+async def create_zones(camera_id: str, request: Request):
+    data = await request.json()
+    zone_name = data.get('zone_name')
+    if not zone_name:
+        return JSONResponse(status_code=400, content={'success': False, 'error': 'Zone name is required.'})
+    
+    try:
+        conn = mysql.connector.connect(**DB_CONFIG)
+        cursor = conn.cursor()
+        cursor.execute("INSERT INTO zones (camera_id, zone_name, total_spaces) VALUES (%s, %s, 0)", (camera_id, zone_name))
+        conn.commit()
+        new_zone_id = cursor.lastrowid
+        cursor.close()
+        conn.close()
+        return JSONResponse(content={'success': True, 'zone_id': new_zone_id})
+    
+    except mysql.connector.Error as err:
+        return JSONResponse(status_code=500, content={'success': False, 'error': f'Database error: {err}'})
+    
+@app.get('/get_zones/{camera_id}')  
+def get_zones(camera_id: str):
+    try:
+        conn = mysql.connector.connect(**DB_CONFIG)
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute("SELECT id, zone_name, total_spaces FROM zones WHERE camera_id = %s", (camera_id,))
+        zones = cursor.fetchall()
+        cursor.close()
+        conn.close()
+
+        if camera_id in video_detectors:
+            detector = video_detectors[camera_id]
+            with detector_lock:
+                for zone in zones:
+                    zone_id = zone['id']
+                    if zone_id in detector.zone_counts:
+                        zone['available_spaces'] = detector.zone_counts[zone_id]['available']
+                    else:
+                        zone['available_spaces'] = zone['total_spaces']
+        return JSONResponse(content=zones)
+    
+    except mysql.connector.Error as err:
+        return JSONResponse(status_code=500, content={'error': f'Database error: {err}'})
+    
+@app.post('/update_zone_spaces')
+async def update_zone_spaces(request: Request):
+    data = await request.json()
+    zone_data = data.get('zone_data', [])
+    try:
+        conn = mysql.connector.connect(**DB_CONFIG)
+        cursor = conn.cursor()
+
+        for item in zone_data:
+            zone_id = item.get('id')
+            total_spaces = item.get('spaces')
+            if zone_id is not None and isinstance(total_spaces, int) and total_spaces >= 0:
+                cursor.execute("UPDATE zones SET total_spaces = %s WHERE id = %s", (total_spaces, zone_id))
+
+        conn.commit()
+        cursor.close()
+        conn.close()
+        return JSONResponse(content={'success': True})
+    
+    except mysql.connector.Error as err:
+        return JSONResponse(status_code=500, content={'success': False, 'error': f'Database error: {err}'})
+    
+@app.post('/assign_box_to_zone')
+async def assign_box_to_zone(request: Request):
+    data = await request.json()
+    camera_id = data.get('camera_id')
+    box_index = data.get('box_index')
+    zone_id = data.get('zone_id')
+    try:
+        conn = mysql.connector.connect(**DB_CONFIG)
+        cursor = conn.cursor()
+        cursor.execute("UPDATE bounding_boxes SET zone_id = %s WHERE camera_id = %s AND box_index = %s", (zone_id, camera_id, box_index))
+        conn.commit()
+        cursor.close()
+        conn.close()
+        
+        if camera_id in video_detectors:
+            video_detectors[camera_id].reload_configuration()
+        return JSONResponse(content={'success': True})
+    
+    except mysql.connector.Error as err:
+        return JSONResponse(status_code=500, content={'success': False, 'error': f'Database error: {err}'})
+    
+@app.get('/get_aggregate_stats')
+def get_aggregate_stats():
+    total_spaces = 0
+    available_spaces = 0
+
+    with detector_lock:
+        for cam_id, detector in video_detectors.items():
+            for zone_id, zone_data in detector.zone_counts.items():
+                total_spaces += zone_data['total']
+                available_spaces += zone_data['available']
+
+    return JSONResponse(content={'total_spaces': total_spaces, 'available_slots': available_spaces})
+
 # -- Detection Settings Endpoints --
     
 @app.post('/save_settings/{camera_id}')
@@ -592,63 +710,7 @@ def get_logs(camera_id: str):
     
     detector = video_detectors[camera_id]
     logs = detector.log_messages[-100:]
-    total_spaces = detector.total_spaces
-    available_slots = detector.available_slots
-
-    aggregate_total, aggregate_available = get_aggregate_stats()
-    return JSONResponse(content={'logs': logs, 'available_slots': available_slots, 'total_spaces': total_spaces, 
-                                               'aggregate_available': aggregate_available, 'aggregate_total': aggregate_total})
-
-@app.post('/set_bulk_total_spaces')
-async def set_bulk_total_spaces(request: Request):
-    data = await request.json()
-    user_id = data.get('user_id')
-    spaces_data = data.get('spaces_data', []) 
-
-    if not user_id:
-        return JSONResponse(status_code=401, content={'success': False, 'error': 'Authentication required.'})
-
-    try:
-        conn = mysql.connector.connect(**DB_CONFIG)
-        cursor = conn.cursor()
-
-        # Security check - Verify ownership before updating
-        for item in spaces_data:
-            camera_id = item.get('id')
-            if not verify_camera_ownership(camera_id, user_id):
-                cursor.close()
-                conn.close()
-                return JSONResponse(status_code=403, content={'success': False, 'error': f'Permission denied for camera {camera_id}.'})
-
-        # If all checks pass, proceed with the updates
-        for item in spaces_data:
-            camera_id = item.get('id')
-            total_spaces = item.get('spaces')
-            if camera_id is not None and isinstance(total_spaces, int) and total_spaces >= 0:
-                cursor.execute("UPDATE cameras SET total_spaces = %s WHERE id = %s", (total_spaces, camera_id))
-                
-                if camera_id in video_detectors:
-                    with detector_lock:
-                        video_detectors[camera_id].total_spaces = total_spaces
-                        video_detectors[camera_id].available_slots = total_spaces
-        
-        conn.commit()
-        cursor.close()
-        conn.close()
-        return JSONResponse(content={'success': True})
-    
-    except mysql.connector.Error as err:
-        return JSONResponse(status_code=500, content={'success': False, 'error': f'Database error: {err}'})
-
-def get_aggregate_stats():
-    total_spaces_all = 0
-    total_available_spaces = 0
-
-    for camera_id in video_detectors:
-        total_spaces_all += video_detectors[camera_id].total_spaces
-        total_available_spaces += video_detectors[camera_id].available_slots
-
-    return total_spaces_all, total_available_spaces
+    return JSONResponse(content={'logs': logs})
 
 def delete_old_logs():
     try:

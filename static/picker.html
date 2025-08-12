@@ -3,82 +3,64 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Edit Parking Zones</title>
+    <title>Edit Bounding Boxes & Zones</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="shortcut icon" href="/static/favicon.png" type="image/x-icon">
     <style>
+        /* FIX: Constrain the canvas size to prevent it from becoming too large */
         .canvas-container {
             border: 1px solid #4b5563;
             border-radius: 0.75rem;
             overflow: hidden;
             background-color: #000;
+            width: 100%; /* Make container take full width of its parent */
+            max-height: 70vh; /* Set a maximum height relative to the viewport */
+            display: flex;
+            justify-content: center;
+            align-items: center;
         }
         canvas {
             display: block;
             max-width: 100%;
+            max-height: 100%;
             height: auto;
+            width: auto;
             cursor: crosshair;
         }
-        .hidden {
-            display: none;
-        }
-        @keyframes fadeIn {
-            from { opacity: 0; transform: scale(0.95); }
-            to { opacity: 1; transform: scale(1); }
-        }
-        .dropdown-menu {
-            animation: fadeIn 0.2s ease-out forwards;
-        }
+        .zone-list-item.active { background-color: #3b82f6; color: white; }
+        .hidden { display: none; }
     </style>
 </head>
 <body class="bg-gray-900 text-gray-100 min-h-screen">
     <div class="container mx-auto px-4 py-6">
         <!-- Header -->
-        <header class="flex flex-col md:flex-row justify-between items-center mb-8">
-            <div class="flex items-center mb-4 md:mb-0">
-                <i class="fas fa-draw-polygon text-blue-500 text-3xl mr-3"></i>
-                <h1 class="text-2xl md:text-3xl font-bold bg-gradient-to-r from-blue-400 to-blue-600 bg-clip-text text-transparent pb-1">
-                    Edit Detection Lines
-                </h1>
-            </div>
-            <div class="flex items-center space-x-4">
-                <div class="flex items-center bg-gray-800 px-4 py-2 rounded-lg">
-                    <i class="fas fa-clock text-blue-400 mr-2"></i>
-                    <span id="current-time" class="font-mono">00:00:00</span>
-                </div>
-                <!-- User Account Dropdown -->
-                <div class="relative">
-                    <button id="user-menu-button" class="w-10 h-10 bg-gray-700 rounded-full flex items-center justify-center text-lg font-semibold text-white focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-800 focus:ring-white">
-                        <span id="user-initial">?</span>
-                    </button>
-                    <div id="user-menu" class="dropdown-menu hidden absolute right-0 mt-2 w-56 origin-top-right bg-gray-800 rounded-md shadow-lg z-10">
-                        <div class="py-1">
-                            <div class="px-4 py-2 text-sm text-gray-300 border-b border-gray-700">
-                                <p class="font-semibold">Signed in as</p>
-                                <p id="user-name" class="truncate"></p>
-                            </div>
-                            <a href="/register_camera.html" id="manage-camera-btn" class="block px-4 py-2 text-sm text-gray-300 hover:bg-gray-700">Manage Cameras</a>
-                            <a href="#" id="change-account-btn" class="block px-4 py-2 text-sm text-gray-300 hover:bg-gray-700">Change Account</a>
-                            <a href="#" id="logout-btn" class="block px-4 py-2 text-sm text-gray-300 hover:bg-gray-700">Log Out</a>
-                        </div>
-                    </div>
-                </div>
-            </div>
+        <header class="flex justify-between items-center mb-8">
+            <h1 class="text-3xl font-bold text-white">Edit Bounding Boxes & Zones</h1>
+            <a href="/register_camera.html" class="text-blue-400 hover:underline">Back to Camera Management</a>
         </header>
 
         <!-- Main Content -->
-        <!-- Main Content -->
-        <main class="text-center">
-             <div class="bg-gray-800 rounded-xl shadow-xl p-8 w-full max-w-4xl mx-auto">
-                <p id="status" class="text-gray-400 mb-4 text-lg">Loading camera frame...</p>
-                <div class="canvas-container inline-block">
-                    <canvas id="canvas"></canvas>
+        <main class="grid grid-cols-1 lg:grid-cols-4 gap-6">
+            <!-- Controls Panel -->
+            <div class="lg:col-span-1 bg-gray-800 rounded-xl shadow-xl p-6 flex flex-col">
+                <div>
+                    <h2 class="text-xl font-bold mb-4">Zone Management</h2>
+                    <div class="mb-4">
+                        <label for="zone-name-input" class="block text-sm font-medium text-gray-400 mb-2">New Zone Name</label>
+                        <div class="flex">
+                            <input type="text" id="zone-name-input" placeholder="e.g., Staff Parking" class="w-full bg-gray-700 border border-gray-600 rounded-l-lg px-3 py-2 text-sm">
+                            <button id="add-zone-btn" class="bg-green-600 hover:bg-green-700 px-4 rounded-r-lg"><i class="fas fa-plus"></i></button>
+                        </div>
+                    </div>
+                    <div id="zone-list" class="space-y-2 max-h-64 overflow-y-auto">
+                        <!-- Zone buttons will be added here -->
+                    </div>
                 </div>
-                <!-- FIX: Added Mode Selection -->
-                <div class="my-6">
-                    <label class="block text-lg font-medium text-gray-300 mb-2">Set Mode for Next Line</label>
-                    <div class="flex justify-center space-x-6 bg-gray-700 p-2 rounded-lg max-w-sm mx-auto">
+
+                <div class="mt-6">
+                    <h2 class="text-xl font-bold mb-4">2. Set Box Mode</h2>
+                     <div class="space-y-2 rounded-lg bg-gray-700 p-3">
                         <div class="flex items-center">
                             <input id="mode-entry" name="box-mode" type="radio" value="entry" checked class="h-4 w-4 text-green-500 bg-gray-600 border-gray-500 focus:ring-green-500">
                             <label for="mode-entry" class="ml-2 block text-sm font-medium text-green-400">Entry Line (Green)</label>
@@ -89,126 +71,55 @@
                         </div>
                     </div>
                 </div>
-                <div class="mt-6 flex justify-center items-center gap-4 flex-wrap">
-                    <button id="undo-btn" class="bg-gray-600 hover:bg-gray-700 px-5 py-2 rounded-lg flex items-center transition">
-                        <i class="fas fa-undo mr-2"></i> Undo Point
-                    </button>
-                    <button id="clear-btn" class="bg-red-600 hover:bg-red-700 px-5 py-2 rounded-lg flex items-center transition">
-                        <i class="fas fa-trash mr-2"></i> Clear All
-                    </button>
-                    <button id="save-btn" class="bg-blue-600 hover:bg-blue-700 px-5 py-2 rounded-lg flex items-center transition">
-                        <i class="fas fa-save mr-2"></i> Save & Finish
-                    </button>
+
+                <div class="mt-auto pt-6 space-y-2">
+                    <button id="undo-btn" class="w-full bg-yellow-600 hover:bg-yellow-700 py-2 rounded-lg">Undo Point</button>
+                    <button id="save-btn" class="w-full bg-blue-600 hover:bg-blue-700 py-3 rounded-lg">Save All Changes</button>
+                    <button id="clear-btn" class="w-full bg-red-600 hover:bg-red-700 py-2 rounded-lg">Clear All Boxes</button>
+                    <p id="status" class="text-center text-gray-400 min-h-[24px] mt-2"></p>
                 </div>
             </div>
-        </main>
 
-        <!-- Footer -->
-        <footer class="mt-8 text-center text-gray-500 text-sm">
-            <p>Smart Parking Monitoring System • v1.0.0</p>
-        </footer>
+            <!-- Canvas -->
+            <div class="lg:col-span-3 bg-gray-800 rounded-xl shadow-xl p-6 text-center">
+                <p id="canvas-status" class="text-gray-400 mb-4 text-lg">Select a zone, then click 4 points on the image to draw a box.</p>
+                <div class="canvas-container inline-block">
+                    <canvas id="canvas"></canvas>
+                </div>
+                <p class="text-gray-400 mt-4 text-lg">Right-click a box to delete it.</p>
+            </div>
+        </main>
     </div>
     
     <script>
         document.addEventListener('DOMContentLoaded', () => {
-            // --- Element References ---
             const canvas = document.getElementById('canvas');
             const ctx = canvas.getContext('2d');
             const statusEl = document.getElementById('status');
-            const saveBtn = document.getElementById('save-btn');
+            const canvasStatusEl = document.getElementById('canvas-status');
+            const zoneNameInput = document.getElementById('zone-name-input');
+            const addZoneBtn = document.getElementById('add-zone-btn');
+            const zoneListEl = document.getElementById('zone-list');
             const undoBtn = document.getElementById('undo-btn');
+            const saveBtn = document.getElementById('save-btn');
             const clearBtn = document.getElementById('clear-btn');
-            const currentTimeEl = document.getElementById('current-time');
-            const userMenuButton = document.getElementById('user-menu-button');
-            const userMenu = document.getElementById('user-menu');
-            const userInitial = document.getElementById('user-initial');
-            const userNameEl = document.getElementById('user-name');
-            const manageCamBtn = document.getElementById('manage-camera-btn');
-            const changeAccountBtn = document.getElementById('change-account-btn');
-            const logoutBtn = document.getElementById('logout-btn');
 
-            // --- Initial State & Auth ---
             const urlParams = new URLSearchParams(window.location.search);
             const camera_id = urlParams.get('camera_id');
             const user = JSON.parse(sessionStorage.getItem('user'));
+
             let image = new Image();
             let currentPolygon = [];
-            let parkingSpaces = []; // FIX: This will now be an array of objects
+            let parkingSpaces = []; // {points:[], zone_id: int, mode: 'entry'/'exit'}
+            let zones = {}; // {zone_id: {name: 'Staff', color: '#...'}, ...}
+            let activeZoneId = null;
+            const defaultColor = '#9ca3af';
+            const colorPalette = ['#3b82f6', '#ef4444', '#f97316', '#8b5cf6', '#14b8a6', '#d946ef', '#22c55e'];
 
-            if (!user) {
-                window.location.href = '/';
+            if (!user || !camera_id) {
+                statusEl.textContent = "Error: Missing user or camera ID.";
                 return;
             }
-            if (!camera_id) {
-                statusEl.textContent = 'Error: No Camera ID provided in URL.';
-                return;
-            }
-
-            // --- UI Functions ---
-            if(user && user.username) {
-                userInitial.textContent = user.username.charAt(0).toUpperCase();
-                userNameEl.textContent = user.username;
-            }
-
-            function updateTime() {
-                currentTimeEl.textContent = new Date().toLocaleTimeString();
-            }
-            setInterval(updateTime, 1000);
-            updateTime();
-
-            function stopStream() {
-                if (camera_id) {
-                    navigator.sendBeacon('/stop_all_streams', JSON.stringify({}));
-                }
-            }
-
-            function logout() {
-                stopStream();
-                sessionStorage.removeItem('user');
-                window.location.href = '/';
-            }
-
-            userMenuButton.addEventListener('click', (event) => {
-                event.stopPropagation();
-                userMenu.classList.toggle('hidden');
-            });
-            window.addEventListener('click', () => {
-                if (!userMenu.classList.contains('hidden')) userMenu.classList.add('hidden');
-            });
-            
-            logoutBtn.addEventListener('click', logout);
-            changeAccountBtn.addEventListener('click', logout);
-
-            function updateStatus() {
-                if (currentPolygon.length > 0) {
-                    statusEl.textContent = `Drawing space... ${currentPolygon.length}/4 points placed.`;
-                } else {
-                    statusEl.textContent = `Spaces drawn: ${parkingSpaces.length}. Right-click to undo a full space.`;
-                }
-            }
-
-            // --- Canvas and Data Logic ---
-            fetch(`/capture_frame/${camera_id}?user_id=${user.user_id}`)
-                fetch(`/capture_frame/${camera_id}?user_id=${user.user_id}`)
-                .then(response => response.blob())
-                .then(blob => {
-                    image.src = URL.createObjectURL(blob);
-                    image.onload = () => {
-                        canvas.width = image.width;
-                        canvas.height = image.height;
-                        fetch(`/get_bounding_boxes/${camera_id}?user_id=${user.user_id}`)
-                            .then(res => res.json())
-                            .then(data => {
-                                parkingSpaces = data.bounding_boxes || [];
-                                redraw();
-                                updateStatus();
-                            });
-                    };
-                })
-                .catch(err => {
-                    console.error('Error loading frame:', err);
-                    statusEl.textContent = err.message;
-                });
 
             function getSelectedMode() {
                 return document.querySelector('input[name="box-mode"]:checked').value;
@@ -216,27 +127,41 @@
 
             function redraw() {
                 if (!image.src) return;
-                ctx.drawImage(image, 0, 0);
+                ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
                 
-                // Draw existing polygons with color based on their mode
-                parkingSpaces.forEach(space => {
-                    ctx.strokeStyle = space.mode === 'entry' ? '#22c55e' : '#ef4444'; // Green for entry, Red for exit
+                parkingSpaces.forEach((space) => {
+                    // FIX: Box color is now determined by its mode
+                    const color = space.mode === 'entry' ? '#22c55e' : '#ef4444'; // Green for entry, Red for exit
+                    const zone = zones[space.zone_id];
+                    
+                    ctx.strokeStyle = color;
+                    ctx.fillStyle = color + '33';
                     ctx.lineWidth = 3;
                     ctx.beginPath();
                     ctx.moveTo(space.points[0][0], space.points[0][1]);
                     for (let i = 1; i < space.points.length; i++) ctx.lineTo(space.points[i][0], space.points[i][1]);
                     ctx.closePath();
                     ctx.stroke();
+                    ctx.fill();
+
+                    // Add zone name label to the box
+                    if (zone) {
+                        const centerX = space.points.reduce((sum, p) => sum + p[0], 0) / 4;
+                        const centerY = space.points.reduce((sum, p) => sum + p[1], 0) / 4;
+                        ctx.fillStyle = '#ffffff';
+                        ctx.font = 'bold 16px Arial';
+                        ctx.textAlign = 'center';
+                        ctx.textBaseline = 'middle';
+                        ctx.fillText(zone.name, centerX, centerY);
+                    }
                 });
 
-                // Draw the polygon currently being created
-                ctx.strokeStyle = '#3b82f6'; // Blue for drawing
+                ctx.strokeStyle = '#3b82f6';
                 ctx.lineWidth = 2;
                 ctx.beginPath();
                 currentPolygon.forEach(([x, y], i) => (i === 0) ? ctx.moveTo(x, y) : ctx.lineTo(x, y));
                 ctx.stroke();
 
-                // Draw all points
                 ctx.fillStyle = '#ffffff';
                 const allPoints = [...parkingSpaces.flatMap(s => s.points), ...currentPolygon];
                 allPoints.forEach(([x, y]) => {
@@ -246,7 +171,27 @@
                 });
             }
 
-            canvas.addEventListener('click', (e) => {
+            function renderZoneList() {
+                zoneListEl.innerHTML = '';
+                for (const zoneId in zones) {
+                    const zone = zones[zoneId];
+                    const button = document.createElement('button');
+                    button.className = `w-full flex items-center p-2 rounded-lg text-left transition zone-list-item ${activeZoneId == zoneId ? 'active' : 'bg-gray-700 hover:bg-gray-600'}`;
+                    button.innerHTML = `<div class="w-4 h-4 rounded-full mr-3" style="background-color: ${zone.color};"></div><span>${zone.name}</span>`;
+                    button.addEventListener('click', () => {
+                        activeZoneId = zoneId;
+                        renderZoneList();
+                    });
+                    zoneListEl.appendChild(button);
+                }
+            }
+
+           canvas.addEventListener('click', (e) => {
+                if (!activeZoneId) {
+                    canvasStatusEl.textContent = "Please select a zone from the list first!";
+                    return;
+                }
+                
                 const rect = canvas.getBoundingClientRect();
                 const scaleX = canvas.width / rect.width;
                 const scaleY = canvas.height / rect.height;
@@ -256,20 +201,35 @@
                 currentPolygon.push([x, y]);
                 
                 if (currentPolygon.length === 4) {
+                    // FIX: Get the selected mode when creating a new box
                     const mode = getSelectedMode();
-                    parkingSpaces.push({ points: currentPolygon, mode: mode });
+                    parkingSpaces.push({ points: currentPolygon, zone_id: activeZoneId, mode: mode });
                     currentPolygon = [];
                 }
                 redraw();
-                updateStatus();
             });
 
             canvas.addEventListener('contextmenu', (e) => {
-                e.preventDefault();
-                if (currentPolygon.length > 0) currentPolygon = [];
-                else if (parkingSpaces.length > 0) parkingSpaces.pop();
-                redraw();
-                updateStatus();
+                e.preventDefault(); // Prevent the default right-click menu
+                const rect = canvas.getBoundingClientRect();
+                const scaleX = canvas.width / rect.width;
+                const scaleY = canvas.height / rect.height;
+                const x = (e.clientX - rect.left) * scaleX;
+                const y = (e.clientY - rect.top) * scaleY;
+
+                // Find which box was clicked on, starting from the top-most one
+                for (let i = parkingSpaces.length - 1; i >= 0; i--) {
+                    const space = parkingSpaces[i];
+                    ctx.beginPath();
+                    ctx.moveTo(space.points[0][0], space.points[0][1]);
+                    for (let j = 1; j < space.points.length; j++) ctx.lineTo(space.points[j][0], space.points[j][1]);
+                    ctx.closePath();
+                    if (ctx.isPointInPath(x, y)) {
+                        parkingSpaces.splice(i, 1); // Remove the box from the array
+                        redraw();
+                        return; // Stop after deleting one box
+                    }
+                }
             });
 
             undoBtn.addEventListener('click', () => {
@@ -277,20 +237,10 @@
                     currentPolygon.pop();
                 } else if (parkingSpaces.length > 0) {
                     const lastSpace = parkingSpaces.pop();
-                    currentPolygon = lastSpace.points; // Get the points back
-                    currentPolygon.pop(); // Remove the last point
+                    currentPolygon = lastSpace.points;
                 }
                 redraw();
                 updateStatus();
-            });
-            
-            clearBtn.addEventListener('click', () => {
-                if (confirm('Are you sure you want to clear all spaces?')) {
-                    parkingSpaces = [];
-                    currentPolygon = [];
-                    redraw();
-                    updateStatus();
-                }
             });
 
             saveBtn.addEventListener('click', () => {
@@ -303,19 +253,78 @@
                 .then(response => response.json())
                 .then(result => {
                     if (result.success) {
-                        statusEl.textContent = 'Saved successfully! Redirecting...';
+                        statusEl.textContent = 'Saved successfully!';
                         setTimeout(() => {
                            window.location.href = `/stream.html?camera_id=${camera_id}`;
                         }, 1500);
                     } else {
                         statusEl.textContent = 'Failed to save spaces.';
                     }
-                })
-                .catch(err => {
-                    console.error('Save error:', err);
-                    statusEl.textContent = 'Error connecting to server.';
                 });
             });
+            
+            clearBtn.addEventListener('click', () => {
+                if (confirm('Are you sure you want to clear all boxes?')) {
+                    parkingSpaces = [];
+                    currentPolygon = [];
+                    redraw();
+                }
+            });
+
+            addZoneBtn.addEventListener('click', () => {
+                const zoneName = zoneNameInput.value.trim();
+                if (zoneName) {
+                    fetch(`/create_zone/${camera_id}`, {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({ zone_name: zoneName, user_id: user.user_id })
+                    })
+                    .then(res => res.json())
+                    .then(result => {
+                        if (result.success) {
+                            zoneNameInput.value = '';
+                            initialize(); // Re-initialize to fetch all data again
+                        } else {
+                            statusEl.textContent = result.error;
+                        }
+                    });
+                }
+            });
+
+            // --- Initial Load ---
+            async function initialize() {
+                // 1. Fetch Frame
+                const frameResponse = await fetch(`/capture_frame/${camera_id}?user_id=${user.user_id}`);
+                const blob = await frameResponse.blob();
+                image.src = URL.createObjectURL(blob);
+                await new Promise(resolve => image.onload = resolve);
+                canvas.width = image.width;
+                canvas.height = image.height;
+
+                // 2. Fetch Zones
+                const zonesResponse = await fetch(`/get_zones/${camera_id}`);
+                const zonesData = await zonesResponse.json();
+                let colorIndex = 0;
+                zones = {}; // Clear old zones
+                zonesData.forEach(zone => {
+                    zones[zone.id] = {
+                        name: zone.zone_name,
+                        color: colorPalette[colorIndex % colorPalette.length]
+                    };
+                    colorIndex++;
+                });
+                renderZoneList();
+
+                // 3. Fetch Bounding Boxes
+                const boxesResponse = await fetch(`/get_bounding_boxes/${camera_id}?user_id=${user.user_id}`);
+                const boxesData = await boxesResponse.json();
+                parkingSpaces = boxesData.bounding_boxes || [];
+                
+                redraw();
+                statusEl.textContent = "Ready to edit.";
+            }
+
+            initialize();
         });
     </script>
 </body>

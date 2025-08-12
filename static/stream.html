@@ -159,8 +159,8 @@
                 <!-- All Camera Occupancy -->
                 <div class="bg-gray-800 rounded-xl p-6 shadow-xl">
                     <h2 class="text-lg font-semibold mb-4">
-                        <i class="fas fa-chart-area mr-2 mt-0.5 text-blue-400"></i>
-                        Current Camera Stats
+                        <i class="fas fa-chart-pie mr-2 mt-0.5 text-blue-400"></i>
+                        Overall Occupancy
                     </h2>
                     <div class="grid grid-cols-2 gap-4">
                         <div class="bg-gray-700 rounded-lg p-4 text-center">
@@ -181,7 +181,13 @@
                             <div id="occupancy-bar" style="width:0%" class="shadow-none flex flex-col text-center whitespace-nowrap text-white justify-center bg-gradient-to-r from-blue-500 to-blue-600"></div>
                         </div>
                     </div>
+                </div> 
+
+                <!-- Zone Stats -->
+                <div id="zone-stats-container" class="space-y-6">
+                    <!-- Zone cards will be inserted here by JavaScript -->
                 </div>
+
                 <!-- Additional Info -->
                 <div class="bg-gray-800 rounded-xl p-6 shadow-xl">
                     <h2 class="text-lg font-semibold mb-4 flex items-center">
@@ -251,10 +257,19 @@
             const logTbody = document.getElementById('log-entries');
 
             // --- Stats Elements ---
+            // Overall stats
             const availableSpacesEl = document.getElementById('available-spaces');
             const totalSpacesEl = document.getElementById('total-spaces');
             const occupancyPercentEl = document.getElementById('occupancy-percent');
             const occupancyBarEl = document.getElementById('occupancy-bar');
+            const statsContainer = document.getElementById('stats-container');
+
+            // Zone Stats
+            const zoneStatsContainer = document.getElementById('zone-stats-container');
+            const aggregateTotalEl = document.getElementById('aggregate-total-spaces');
+            const aggregateAvailableEl = document.getElementById('aggregate-available-spaces');
+
+            // Stream Status
             const currentTimeEl = document.getElementById('current-time');
             const cameraIdDisplayEl = document.getElementById('camera-id-display');
             const lastUpdatedEl = document.getElementById('last-updated');
@@ -311,6 +326,56 @@
             }
             setInterval(updateTime, 1000);
             updateTime();
+
+            function fetchStats(camId) {
+                if (!camId) return;
+
+                fetch('/get_aggregate_stats')
+                    .then(res => res.json())
+                    .then(data => {
+                        if (data) {
+                            const totalSpaces = data.total_spaces;
+                            const availableSlotsDisplay = Math.min(Math.max(data.available_slots, 0), totalSpaces);
+                            const occupiedSpaces = totalSpaces > 0 ? totalSpaces - availableSlotsDisplay : 0;
+                            const occupancyPercent = totalSpaces > 0 ? Math.round((occupiedSpaces / totalSpaces) * 100) : 0;
+
+                            totalSpacesEl.textContent = totalSpaces;
+                            availableSpacesEl.textContent = availableSlotsDisplay;
+
+                            occupancyPercentEl.textContent = `${occupancyPercent}%`;
+                            occupancyBarEl.style.width = `${occupancyPercent}%`;
+
+                        }
+                    });
+
+                fetch(`/get_zones/${camId}`)
+                    .then(res => res.json())
+                    .then(zones => {
+                        zoneStatsContainer.innerHTML = '';
+                        if (zones && zones.length > 0) {
+                            zones.forEach(zone => {
+                                const statCard = document.createElement('div');
+                                statCard.className = 'bg-gray-800 rounded-xl p-6 shadow-xl';
+                                statCard.innerHTML = `
+                                    <h2 class="text-lg font-semibold mb-4 text-center">${zone.zone_name}</h2>
+                                    <div class="grid grid-cols-2 gap-4">
+                                        <div class="bg-gray-700 rounded-lg p-4 text-center">
+                                            <div class="text-3xl font-bold text-blue-400">${zone.total_spaces}</div>
+                                            <div class="text-sm text-gray-400">Total Spaces</div>
+                                        </div>
+                                        <div class="bg-gray-700 rounded-lg p-4 text-center">
+                                            <div class="text-3xl font-bold text-green-400">${zone.available_spaces}</div>
+                                            <div class="text-sm text-gray-400">Available</div>
+                                        </div>
+                                    </div>
+                                `;
+                                zoneStatsContainer.appendChild(statCard);
+                            });
+                        } else {
+                            zoneStatsContainer.innerHTML = '<div class="bg-gray-800 rounded-xl p-6 shadow-xl"><p class="text-center text-gray-500">No zones configured for this camera.</p></div>';
+                        }
+                    });
+            }
 
             function stopStream() {
                 if (currentCameraId) {
@@ -379,6 +444,7 @@
                 prevCamBtn.disabled = currentCameraIndex === 0;
                 nextCamBtn.disabled = currentCameraIndex === allCameras.length - 1;
 
+                fetchStats(currentCameraId);
                 fetchLogs(currentCameraId);
                 logInterval = setInterval(() => fetchLogs(currentCameraId), 2000);
                 loadSettings(currentCameraId);
@@ -425,17 +491,6 @@
                         if (!data || !Array.isArray(data.logs)) {
                             return;
                         }
-
-                        const totalSpaces = data.total_spaces;
-                        const availableSlotsDisplay = Math.min(Math.max(data.available_slots, 0), totalSpaces);
-                        const occupiedSpaces = totalSpaces > 0 ? totalSpaces - availableSlotsDisplay : 0;
-                        const occupancyPercent = totalSpaces > 0 ? Math.round((occupiedSpaces / totalSpaces) * 100) : 0;
-
-                        totalSpacesEl.textContent = totalSpaces;
-                        availableSpacesEl.textContent = availableSlotsDisplay;
-
-                        occupancyPercentEl.textContent = `${occupancyPercent}%`;
-                        occupancyBarEl.style.width = `${occupancyPercent}%`;
 
                         if (data.logs.length === 0) {
                              // If there are no logs, ensure the table is empty

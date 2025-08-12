@@ -39,11 +39,11 @@ class VideoDetector:
         self.model = self.load_model()
         
         self.parking_boxes_data = []
-        self.total_spaces = 0
         self.slot_status = {}
         self.log_messages = []
-        self.available_slots = 0
         self.detection_threshold = 0.35
+
+        self.zone_counts = {}
 
         self.reload_configuration()
         self.log_messages = self.load_logs_from_db()
@@ -84,10 +84,21 @@ class VideoDetector:
                 self.detection_threshold = settings.get('detection_threshold', 0.35)
                 print(f"[{time.strftime('%H:%M:%S')}] Loaded settings: DET={self.detection_threshold}")
 
-            cursor.execute("SELECT points, mode FROM bounding_boxes WHERE camera_id = %s ORDER BY box_index ASC", (self.camera_id,))
+            cursor.execute("SELECT id, zone_name, total_spaces FROM zones WHERE camera_id = %s", (self.camera_id,))
+            zones = cursor.fetchall()
+            self.zone_counts = {
+                zone['id']: {
+                    'name': zone['zone_name'],
+                    'total': zone['total_spaces'],
+                    'available': zone['total_spaces']
+                } for zone in zones
+            }
+            print(f"Loaded {len(self.zone_counts)} zones for camera {self.camera_id}.")
+
+            cursor.execute("SELECT box_index, points, zone_id, mode FROM bounding_boxes WHERE camera_id = %s ORDER BY box_index ASC", (self.camera_id,))
             result = cursor.fetchall()
 
-            new_parking_data = [{'points': json.loads(row['points']), 'mode': row['mode']} for row in result]
+            new_parking_data = [{'points': json.loads(row['points']), 'zone_id': row['zone_id'], 'mode': row['mode']} for row in result]
 
             if new_parking_data != self.parking_boxes_data:
                 print(f"[{time.strftime('%H:%M:%S')}] Change in bounding boxes detected. Resetting state.")
@@ -97,7 +108,7 @@ class VideoDetector:
             else:
                 print(f"[{time.strftime('%H:%M:%S')}] Settings updated. Preserving current occupancy state.")
 
-            print(f"[{time.strftime('%H:%M:%S')}] Configuration reloaded. Found {self.total_spaces} spaces.")
+            print(f"[{time.strftime('%H:%M:%S')}] Configuration reloaded.")
 
             cursor.close()
             conn.close()
@@ -195,7 +206,7 @@ class VideoDetector:
 
                     if box_mode == 'entry':
                         if self.event_callback:
-                            self.event_callback(self.camera_id, 'ENTRY')
+                            self.event_callback(self.camera_id, idx, 'ENTRY')
 
                 elif not is_occupied_now and previous_state:
                     if idx not in self.slot_status: self.slot_status[idx] = {}
@@ -203,7 +214,7 @@ class VideoDetector:
 
                     if box_mode == 'exit':
                         if self.event_callback:
-                            self.event_callback(self.camera_id, 'EXIT')
+                            self.event_callback(self.camera_id, idx, 'EXIT')
 
                 color = (0, 0, 255) if is_occupied_now else (0, 255, 0)
                 thickness = 2
