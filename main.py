@@ -1,7 +1,7 @@
 from fastapi import FastAPI, Form, Request
 from fastapi.responses import StreamingResponse, JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
-from detector import VideoDetector
+from detector import TripwireDetector, ParkingDetector
 from threading import Thread, Lock
 import uuid
 import json, cv2, os, io
@@ -57,6 +57,7 @@ def createDB_and_tables():
                 user_id INT,
                 camera_name VARCHAR(50) NOT NULL,
                 stream_url VARCHAR(191) NOT NULL,
+                detection_type VARCHAR(50) DEFAULT 'tripwire',
                        
                 FOREIGN KEY (user_id) REFERENCES users (id)
             )
@@ -150,14 +151,14 @@ def start_all_detectors():
     try:
         conn = mysql.connector.connect(**DB_CONFIG)
         cursor = conn.cursor(dictionary=True)
-        cursor.execute("SELECT id, stream_url, camera_name FROM cameras")
+        cursor.execute("SELECT id, stream_url, camera_name, detection_type FROM cameras")
         all_cameras = cursor.fetchall()
         cursor.close()
         conn.close()
 
         for camera in all_cameras:
             if camera['id'] not in video_detectors:
-                start_single_detector(camera['id'], camera['stream_url'], camera['camera_name'])
+                start_single_detector(camera['id'], camera['stream_url'], camera['camera_name'], camera['detection_type'])
         print(f'Completed startup. {len(video_detectors)} detectors are running.')
 
     except mysql.connector.Error as err:
@@ -184,10 +185,14 @@ def stop_all_detectors():
     except mysql.connector.Error as err:
         print(f'Database error during startup: {err}')
 
-def start_single_detector(camera_id: str, rtsp_url: str, name: str):
+def start_single_detector(camera_id: str, rtsp_url: str, name: str, det_type: str):
     if camera_id not in video_detectors:
         print(f"Initializing detector for camera: {camera_id}")
-        detector = VideoDetector(rtsp_url, camera_id, event_callback=handle_crossing_event)
+        if det_type == 'tripwire':
+            detector = TripwireDetector(rtsp_url, camera_id, event_callback=handle_crossing_event)
+        elif det_type == 'parking':
+            detector = ParkingDetector(rtsp_url, camera_id)
+            
         detector.camera_name = name
         video_detectors[camera_id] = detector
         t = Thread(target=detector.run, daemon=True)
