@@ -214,9 +214,9 @@
                         return;
                     }
 
-                    const urlRegex = /^[a-zA-Z]+:\/\//;
+                    const urlRegex = /^rtsp:\/\/([^:@]+):([^@]+)@([^:/]+)(?::(\d+))?(\/.*)?$/;
                     if (!urlRegex.test(streamUrl)) {
-                        setStatus('Invalid format. URL must be a valid link (e.g., http://, rtsp://).', 'error');
+                        setStatus('Invalid format. URL must be a valid rtsp link with username and password (e.g., rtsp://).', 'error');
                         return;
                     }
                     

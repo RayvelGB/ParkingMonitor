@@ -731,7 +731,7 @@ def get_logs(camera_id: str):
         return JSONResponse(status_code=404, content={'error': 'Camera not found.'})
     
     detector = video_detectors[camera_id]
-    logs = detector.log_messages[-100:]
+    logs = detector.log_messages[-50:]
     return JSONResponse(content={'logs': logs})
 
 def delete_old_logs():
@@ -745,6 +745,7 @@ def delete_old_logs():
         print(f"[{time.strftime('%H:%M:%S')}] Performed daily log cleanup. {cursor.rowcount} old logs deleted.")
         cursor.close()
         conn.close()
+        
     except mysql.connector.Error as err:
         print(f"Error during log cleanup: {err}")
 

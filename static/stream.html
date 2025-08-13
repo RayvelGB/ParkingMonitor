@@ -26,6 +26,24 @@
             background-color: #4b5563;
             border-radius: 4px;
         }
+
+        #zone-stats-container {
+            scrollbar-width: thin;
+            scrollbar-color: #4b5563 transparent;
+        }
+        
+        #zone-stats-container::-webkit-scrollbar {
+            width: 8px;
+        }
+        
+        #zone-stats-container::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        
+        #zone-stats-container::-webkit-scrollbar-thumb {
+            background-color: #4b5563;
+            border-radius: 4px;
+        }
         
         /* Animation for new log entries */
         @keyframes highlight {
@@ -184,7 +202,7 @@
                 </div> 
 
                 <!-- Zone Stats -->
-                <div id="zone-stats-container" class="space-y-6">
+                <div id="zone-stats-container" class="space-y-6 max-h-[20vh] overflow-y-auto pr-2">
                     <!-- Zone cards will be inserted here by JavaScript -->
                 </div>
 
@@ -361,7 +379,7 @@
                                 const statCard = document.createElement('div');
                                 statCard.className = 'bg-gray-800 rounded-xl p-6 shadow-xl';
                                     statCard.innerHTML = `
-                                        <h2 class="text-lg font-semibold mb-4 text-center">
+                                        <h2 class="text-lg font-semibold mb-4">
                                             <i class="fas fa-globe mr-2 mt-0.5 text-blue-400"></i>
                                             ${zoneName}
                                         </h2>
