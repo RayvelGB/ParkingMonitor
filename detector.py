@@ -478,7 +478,8 @@ class ParkingDetector:
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 0, 1, 0, 1, 0)
                 ON DUPLICATE KEY UPDATE
                     cup = cup + VALUES(cup),
-                    cdw = cdw + VALUES(cdw)
+                    cdw = cdw + VALUES(cdw),
+                    jml = CASE WHEN jml = 0 THEN VALUES(jml) ELSE jml END
             """
             cursor.execute(query, (cam_ip, zone_id, keterangan, current_date, current_time, jml, cup, cdw))
 

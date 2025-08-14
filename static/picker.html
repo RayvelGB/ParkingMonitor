@@ -197,15 +197,56 @@
                 zoneListEl.innerHTML = '';
                 for (const zoneId in zones) {
                     const zone = zones[zoneId];
-                    const button = document.createElement('button');
-                    button.className = `w-full flex items-center p-2 rounded-lg text-left transition zone-list-item ${activeZoneId == zoneId ? 'active' : 'bg-gray-700 hover:bg-gray-600'}`;
-                    button.innerHTML = `<div class="w-4 h-4 rounded-full mr-3" style="background-color: ${zone.color};"></div><span>${zone.name}</span>`;
-                    button.addEventListener('click', () => {
+                    const button = document.createElement('div');
+                    button.className = `w-full flex items-center justify-between p-2 rounded-lg text-left transition zone-list-item ${activeZoneId == zoneId ? 'active' : 'bg-gray-700 hover:bg-gray-600'}`;
+                    button.innerHTML = `
+                        <div class="flex items-center cursor-pointer flex-grow">
+                            <div class="w-4 h-4 rounded-full mr-3" style="background-color: ${zone.color};"></div>
+                            <span>${zone.name}</span>
+                        </div>
+                        <button data-zone-id="${zoneId}" class="delete-zone-btn text-gray-400 hover:text-white px-2">&times;</button>
+                    `;
+                    button.querySelector('.flex-grow').addEventListener('click', () => {
                         activeZoneId = zoneId;
                         renderZoneList();
                     });
                     zoneListEl.appendChild(button);
                 }
+
+                // Add event listeners for the new delete buttons
+                document.querySelectorAll('.delete-zone-btn').forEach(btn => {
+                    btn.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        const zoneIdToDelete = e.target.dataset.zoneId;
+                        const zoneNameToDelete = zones[zoneIdToDelete].name;
+                        if (confirm(`Are you sure you want to delete the "${zoneNameToDelete}" zone? All boxes assigned to it will be unassigned.`)) {
+                            fetch(`/delete_zone/${zoneIdToDelete}`, {
+                                method: 'DELETE',
+                                headers: {'Content-Type': 'application/json'},
+                                body: JSON.stringify({ user_id: user.user_id })
+                            })
+                            .then(res => res.json())
+                            .then(result => {
+                                if (result.success) {
+                                    // Remove from local state and re-render
+                                    delete zones[zoneIdToDelete];
+                                    if (activeZoneId == zoneIdToDelete) {
+                                        activeZoneId = null;
+                                    }
+                                    parkingSpaces.forEach(space => {
+                                        if (space.zone_id == zoneIdToDelete) {
+                                            space.zone_id = null;
+                                        }
+                                    });
+                                    renderZoneList();
+                                    redraw();
+                                } else {
+                                    statusEl.textContent = result.error || 'Failed to delete zone.';
+                                }
+                            });
+                        }
+                    });
+                });
             }
 
             detectionToggle.addEventListener('change', () => {
@@ -325,8 +366,21 @@
                     .then(res => res.json())
                     .then(result => {
                         if (result.success) {
+
+                            const newZoneId = result.zone_id;
+                            const colorIndex = Object.keys(zones).length % colorPalette.length;
+
+                            zones[newZoneId] =  {
+                                name: zoneName,
+                                color: colorPalette[colorIndex]
+                            };
+
+                            renderZoneList();
                             zoneNameInput.value = '';
-                            initialize(); // Re-initialize to fetch all data again
+                            statusEl.textContent = `'${zoneName}' created.`;
+                            setTimeout(() => {
+                               statusEl.textContent = ''
+                            }, 2000);
                         } else {
                             statusEl.textContent = result.error;
                         }

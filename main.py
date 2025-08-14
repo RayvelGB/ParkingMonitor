@@ -611,6 +611,33 @@ def get_zones(camera_id: str):
     except mysql.connector.Error as err:
         return JSONResponse(status_code=500, content={'error': f'Database error: {err}'})
     
+@app.delete('/delete_zone/{zone_id}')
+async def delete_zone(zone_id: int, request: Request):
+    data = await request.json()
+    user_id = data.get('user_id')
+
+    try:
+        conn = mysql.connector.connect(**DB_CONFIG)
+        cursor = conn.cursor(dictionary=True)
+
+        cursor.execute("SELECT camera_id FROM zones WHERE id = %s", (zone_id,))
+        result = cursor.fetchone()
+        if not result:
+            return JSONResponse(status_code=404, content={'success': False, 'error': 'Zone not found.'})
+        camera_id  = result['camera_id']
+
+        cursor.execute("DELETE FROM zones WHERE id = %s", (zone_id,))
+        conn.commit()
+        cursor.close()
+        conn.close()
+
+        if camera_id in video_detectors:
+            video_detectors[camera_id].reload_configuration()
+        return JSONResponse(content={'success': True})
+    
+    except mysql.connector.Error as err:
+        return JSONResponse(status_code=500, content={'success': False, 'error': f'Database error: {err}'})
+    
 @app.post('/update_zone_spaces')
 async def update_zone_spaces(request: Request):
     data = await request.json()
@@ -765,7 +792,8 @@ def save_to_info_db(camera_id, zone_id, event_type):
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 0, 1, 0, 1, 0)
             ON DUPLICATE KEY UPDATE
                 cup = cup + VALUES(cup),
-                cdw = cdw + VALUES(cdw)
+                cdw = cdw + VALUES(cdw),
+                jml = CASE WHEN jml = 0 THEN VALUES(jml) ELSE jml END
         """
         cursor.execute(query, (cam_ip, zone_id, keterangan, current_date, current_time, jml, cup, cdw))
 
