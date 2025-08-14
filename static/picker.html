@@ -3,19 +3,18 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Edit Bounding Boxes & Zones</title>
+    <title>Edit Camera Configuration</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="shortcut icon" href="/static/favicon.png" type="image/x-icon">
     <style>
-        /* FIX: Constrain the canvas size to prevent it from becoming too large */
         .canvas-container {
             border: 1px solid #4b5563;
             border-radius: 0.75rem;
             overflow: hidden;
             background-color: #000;
-            width: 100%; /* Make container take full width of its parent */
-            max-height: 70vh; /* Set a maximum height relative to the viewport */
+            width: 100%;
+            max-height: 70vh;
             display: flex;
             justify-content: center;
             align-items: center;
@@ -30,14 +29,40 @@
         }
         .zone-list-item.active { background-color: #3b82f6; color: white; }
         .hidden { display: none; }
+        #box-mode-section {
+            transition: all 0.3s ease-in-out;
+            max-height: 0;
+            overflow: hidden;
+            opacity: 0;
+        }
+        #box-mode-section.visible {
+            max-height: 200px;
+            opacity: 1;
+        }
+        #detection-type-toggle:checked ~ .dot {
+            transform: translateX(1.75rem); /* Corresponds to w-14 in Tailwind */
+            background-color: #3b82f6;
+        }
     </style>
 </head>
 <body class="bg-gray-900 text-gray-100 min-h-screen">
     <div class="container mx-auto px-4 py-6">
         <!-- Header -->
         <header class="flex justify-between items-center mb-8">
-            <h1 class="text-3xl font-bold text-white">Edit Bounding Boxes & Zones</h1>
-            <a href="/register_camera.html" class="text-blue-400 hover:underline">Back to Camera Management</a>
+            <h1 class="text-3xl font-bold text-white">Edit Camera Configuration</h1>
+            <div class="flex items-center space-x-4">
+                <div class="flex items-center space-x-2 bg-gray-800 px-3 py-1 rounded-full">
+                    <span id="detection-type-label" class="text-gray-300 font-medium text-sm w-20 text-center">Tripwire</span>
+                    <label for="detection-type-toggle" class="flex items-center cursor-pointer">
+                        <div class="relative">
+                            <input type="checkbox" id="detection-type-toggle" class="sr-only">
+                            <div class="block bg-gray-600 w-14 h-8 rounded-full"></div>
+                            <div class="dot absolute left-1 top-1 bg-white w-6 h-6 rounded-full transition"></div>
+                        </div>
+                    </label>
+                </div>
+                <a href="/register_camera.html" class="text-blue-400 hover:underline">Back to Management</a>
+            </div>
         </header>
 
         <!-- Main Content -->
@@ -45,7 +70,7 @@
             <!-- Controls Panel -->
             <div class="lg:col-span-1 bg-gray-800 rounded-xl shadow-xl p-6 flex flex-col">
                 <div>
-                    <h2 class="text-xl font-bold mb-4">Zone Management</h2>
+                    <h2 class="text-xl font-bold mb-4">1. Manage Zones</h2>
                     <div class="mb-4">
                         <label for="zone-name-input" class="block text-sm font-medium text-gray-400 mb-2">New Zone Name</label>
                         <div class="flex">
@@ -53,13 +78,11 @@
                             <button id="add-zone-btn" class="bg-green-600 hover:bg-green-700 px-4 rounded-r-lg"><i class="fas fa-plus"></i></button>
                         </div>
                     </div>
-                    <div id="zone-list" class="space-y-2 max-h-64 overflow-y-auto">
-                        <!-- Zone buttons will be added here -->
-                    </div>
+                    <div id="zone-list" class="space-y-2 max-h-48 overflow-y-auto"></div>
                 </div>
 
-                <div class="mt-6">
-                    <h2 class="text-xl font-bold mb-4">2. Set Box Mode</h2>
+                <div id="box-mode-section" class="mt-6">
+                    <h2 class="text-xl font-bold mb-4">2. Set Line Mode</h2>
                      <div class="space-y-2 rounded-lg bg-gray-700 p-3">
                         <div class="flex items-center">
                             <input id="mode-entry" name="box-mode" type="radio" value="entry" checked class="h-4 w-4 text-green-500 bg-gray-600 border-gray-500 focus:ring-green-500">
@@ -71,22 +94,21 @@
                         </div>
                     </div>
                 </div>
-
+                
                 <div class="mt-auto pt-6 space-y-2">
-                    <button id="undo-btn" class="w-full bg-yellow-600 hover:bg-yellow-700 py-2 rounded-lg">Undo Point</button>
-                    <button id="save-btn" class="w-full bg-blue-600 hover:bg-blue-700 py-3 rounded-lg">Save All Changes</button>
-                    <button id="clear-btn" class="w-full bg-red-600 hover:bg-red-700 py-2 rounded-lg">Clear All Boxes</button>
-                    <p id="status" class="text-center text-gray-400 min-h-[24px] mt-2"></p>
+                     <button id="undo-btn" class="w-full bg-yellow-600 hover:bg-yellow-700 py-2 rounded-lg">Undo Point</button>
+                     <button id="save-btn" class="w-full bg-blue-600 hover:bg-blue-700 py-3 rounded-lg">Save & Finish</button>
+                     <button id="clear-btn" class="w-full bg-red-600 hover:bg-red-700 py-2 rounded-lg">Clear All Boxes</button>
+                     <p id="status" class="text-center text-gray-400 min-h-[24px] mt-2"></p>
                 </div>
             </div>
 
             <!-- Canvas -->
             <div class="lg:col-span-3 bg-gray-800 rounded-xl shadow-xl p-6 text-center">
-                <p id="canvas-status" class="text-gray-400 mb-4 text-lg">Select a zone, then click 4 points on the image to draw a box.</p>
+                 <p id="canvas-status" class="text-gray-400 mb-4 text-lg">Select a zone, then click 4 points on the image to draw a box.</p>
                 <div class="canvas-container inline-block">
                     <canvas id="canvas"></canvas>
                 </div>
-                <p class="text-gray-400 mt-4 text-lg">Right-click a box to delete it.</p>
             </div>
         </main>
     </div>
@@ -103,6 +125,9 @@
             const undoBtn = document.getElementById('undo-btn');
             const saveBtn = document.getElementById('save-btn');
             const clearBtn = document.getElementById('clear-btn');
+            const detectionToggle = document.getElementById('detection-type-toggle');
+            const detectionLabel = document.getElementById('detection-type-label');
+            const boxModeSection = document.getElementById('box-mode-section');
 
             const urlParams = new URLSearchParams(window.location.search);
             const camera_id = urlParams.get('camera_id');
@@ -110,18 +135,17 @@
 
             let image = new Image();
             let currentPolygon = [];
-            let parkingSpaces = []; // {points:[], zone_id: int, mode: 'entry'/'exit'}
-            let zones = {}; // {zone_id: {name: 'Staff', color: '#...'}, ...}
+            let parkingSpaces = [];
+            let zones = {};
             let activeZoneId = null;
-            const defaultColor = '#9ca3af';
-            const colorPalette = ['#3b82f6', '#ef4444', '#f97316', '#8b5cf6', '#14b8a6', '#d946ef', '#22c55e'];
+            const colorPalette = ['#3b82f6', '#f97316', '#8b5cf6', '#14b8a6', '#d946ef', '#22c55e'];
 
             if (!user || !camera_id) {
                 statusEl.textContent = "Error: Missing user or camera ID.";
                 return;
             }
 
-            function getSelectedMode() {
+            function getSelectedBoxMode() {
                 return document.querySelector('input[name="box-mode"]:checked').value;
             }
 
@@ -130,8 +154,7 @@
                 ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
                 
                 parkingSpaces.forEach((space) => {
-                    // FIX: Box color is now determined by its mode
-                    const color = space.mode === 'entry' ? '#22c55e' : '#ef4444'; // Green for entry, Red for exit
+                    const color = space.mode === 'entry' ? '#22c55e' : '#ef4444';
                     const zone = zones[space.zone_id];
                     
                     ctx.strokeStyle = color;
@@ -144,7 +167,6 @@
                     ctx.stroke();
                     ctx.fill();
 
-                    // Add zone name label to the box
                     if (zone) {
                         const centerX = space.points.reduce((sum, p) => sum + p[0], 0) / 4;
                         const centerY = space.points.reduce((sum, p) => sum + p[1], 0) / 4;
@@ -186,7 +208,17 @@
                 }
             }
 
-           canvas.addEventListener('click', (e) => {
+            detectionToggle.addEventListener('change', () => {
+                if (detectionToggle.checked) {
+                    detectionLabel.textContent = 'Parking';
+                    boxModeSection.classList.remove('visible');
+                } else {
+                    detectionLabel.textContent = 'Tripwire';
+                    boxModeSection.classList.add('visible');
+                }
+            });
+
+            canvas.addEventListener('click', (e) => {
                 if (!activeZoneId) {
                     canvasStatusEl.textContent = "Please select a zone from the list first!";
                     return;
@@ -201,8 +233,7 @@
                 currentPolygon.push([x, y]);
                 
                 if (currentPolygon.length === 4) {
-                    // FIX: Get the selected mode when creating a new box
-                    const mode = getSelectedMode();
+                    const mode = getSelectedBoxMode();
                     parkingSpaces.push({ points: currentPolygon, zone_id: activeZoneId, mode: mode });
                     currentPolygon = [];
                 }
@@ -210,7 +241,7 @@
             });
 
             canvas.addEventListener('contextmenu', (e) => {
-                e.preventDefault(); // Prevent the default right-click menu
+                e.preventDefault(); // Prevent the default browser context menu
                 const rect = canvas.getBoundingClientRect();
                 const scaleX = canvas.width / rect.width;
                 const scaleY = canvas.height / rect.height;
@@ -238,29 +269,41 @@
                 } else if (parkingSpaces.length > 0) {
                     const lastSpace = parkingSpaces.pop();
                     currentPolygon = lastSpace.points;
+                    currentPolygon.pop(); // Remove the last point from the now-current polygon
                 }
                 redraw();
-                updateStatus();
             });
 
             saveBtn.addEventListener('click', () => {
                 statusEl.textContent = 'Saving...';
-                fetch(`/save_bounding_boxes/${camera_id}`, {
+                const selectedType = detectionToggle.checked ? 'parking' : 'tripwire';
+
+                const saveBoxesPromise = fetch(`/save_bounding_boxes/${camera_id}`, {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({boxes: parkingSpaces, user_id: user.user_id})
-                })
-                .then(response => response.json())
-                .then(result => {
-                    if (result.success) {
-                        statusEl.textContent = 'Saved successfully!';
-                        setTimeout(() => {
-                           window.location.href = `/stream.html?camera_id=${camera_id}`;
-                        }, 1500);
-                    } else {
-                        statusEl.textContent = 'Failed to save spaces.';
-                    }
-                });
+                }).then(res => res.json());
+
+                const saveTypePromise = fetch(`/set_detection_type/${camera_id}`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        user_id: user.user_id,
+                        detection_type: selectedType
+                    })
+                }).then(res => res.json());
+
+                Promise.all([saveBoxesPromise, saveTypePromise])
+                    .then(([boxesResult, typeResult]) => {
+                        if (boxesResult.success && typeResult.success) {
+                            statusEl.textContent = 'Saved successfully! Redirecting...';
+                            setTimeout(() => {
+                               window.location.href = `/stream.html?camera_id=${camera_id}`;
+                            }, 1500);
+                        } else {
+                            statusEl.textContent = 'Failed to save settings.';
+                        }
+                    });
             });
             
             clearBtn.addEventListener('click', () => {
@@ -291,9 +334,7 @@
                 }
             });
 
-            // --- Initial Load ---
             async function initialize() {
-                // 1. Fetch Frame
                 const frameResponse = await fetch(`/capture_frame/${camera_id}?user_id=${user.user_id}`);
                 const blob = await frameResponse.blob();
                 image.src = URL.createObjectURL(blob);
@@ -301,11 +342,10 @@
                 canvas.width = image.width;
                 canvas.height = image.height;
 
-                // 2. Fetch Zones
                 const zonesResponse = await fetch(`/get_zones/${camera_id}`);
                 const zonesData = await zonesResponse.json();
                 let colorIndex = 0;
-                zones = {}; // Clear old zones
+                zones = {};
                 zonesData.forEach(zone => {
                     zones[zone.id] = {
                         name: zone.zone_name,
@@ -315,13 +355,22 @@
                 });
                 renderZoneList();
 
-                // 3. Fetch Bounding Boxes
                 const boxesResponse = await fetch(`/get_bounding_boxes/${camera_id}?user_id=${user.user_id}`);
                 const boxesData = await boxesResponse.json();
                 parkingSpaces = boxesData.bounding_boxes || [];
                 
                 redraw();
                 statusEl.textContent = "Ready to edit.";
+
+                // FIX: Corrected the fetch URL
+                const detailsResponse = await fetch(`/get_detection_type/${camera_id}?user_id=${user.user_id}`);
+                const details = await detailsResponse.json();
+                if (details.detection_type === 'parking') {
+                    detectionToggle.checked = true;
+                } else {
+                    detectionToggle.checked = false;
+                }
+                detectionToggle.dispatchEvent(new Event('change'));
             }
 
             initialize();

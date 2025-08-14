@@ -287,7 +287,7 @@ class ParkingDetector:
         self.detection_threshold = 0.35
         self.iou_threshold = 0.3
         self.use_intersection_only = False
-        self.confirmation_time = 5
+        self.confirmation_time = 10
 
         self.zone_counts = {}
 
@@ -328,7 +328,7 @@ class ParkingDetector:
             if settings:
                 self.detection_threshold = settings.get('detection_threshold', 0.35)
                 self.iou_threshold = settings.get('iou_threshold', 0.3)
-                self.confirmation_time = settings.get('confirmation_time', 5)
+                self.confirmation_time = settings.get('confirmation_time', 10)
 
             cursor.execute("SELECT id, zone_name FROM zones WHERE camera_id = %s", (self.camera_id,))
             zones = cursor.fetchall()
@@ -347,7 +347,7 @@ class ParkingDetector:
                 new_zone_counts[zone_id] = {
                     'name': zone['zone_name'],
                     'total': total_in_zone,
-                    'available': min(current_available, total_in_zone)
+                    'available': current_available
                 }
             self.zone_counts = new_zone_counts
             
@@ -445,6 +445,50 @@ class ParkingDetector:
         except mysql.connector.Error as err:
             print(f"Error saving log to DB: {err}")
 
+    def get_camera_ip(self, url):
+        no_proto = url.split('://', 1)[1]
+        if '@' in no_proto:
+            no_proto = no_proto.split('@', 1)[1]
+
+        camera_ip = no_proto.split(':')[0].split('/')[0]
+
+        return camera_ip
+
+    def save_to_info_table(self, zone_id, event_type):
+        try:
+            conn = mysql.connector.connect(**DB_CONFIG)
+            cursor = conn.cursor()
+
+            current_date = time.strftime("%Y-%m-%d")
+            current_time = time.strftime("%H:%M:%S")
+            cam_ip = self.get_camera_ip(self.rtsp_url)
+
+            zone_info = self.zone_counts.get(zone_id)
+            if not zone_info:
+                return
+            
+            keterangan = self.camera_name + ' ' + zone_info['name']
+
+            jml = zone_info['total']
+            cup = 1 if event_type == 'occupied' else 0
+            cdw = 1 if event_type == 'vacated' else 0
+
+            query = """
+                INSERT INTO info (ip_kamera, zone_id, keterangan, tgl, jam, jml, cup, cdw, adj, `default`, status, isFull, min)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 0, 1, 0, 1, 0)
+                ON DUPLICATE KEY UPDATE
+                    cup = cup + VALUES(cup),
+                    cdw = cdw + VALUES(cdw)
+            """
+            cursor.execute(query, (cam_ip, zone_id, keterangan, current_date, current_time, jml, cup, cdw))
+
+            conn.commit()
+            cursor.close()
+            conn.close()
+
+        except mysql.connector.Error as err:
+            print(f"Error saving log to DB: {err}")
+
     # -- Run the detection --
     def run(self):
         while self.running:
@@ -479,14 +523,18 @@ class ParkingDetector:
                         if not status['occupied']:
                             status['occupied'] = True
                             status['entry_time'] = current_time
-                            log = f"[{time.strftime('%H:%M:%S')}] Zone '{self.zone_counts.get(zone_id, {}).get('name', 'N/A')}' - Slot {idx+1} OCCUPIED"
+                            log = f"[{time.strftime('%H:%M:%S')}] '{self.zone_counts.get(zone_id, {}).get('name', 'N/A')}' - Slot {idx+1} OCCUPIED"
+                            self.log_messages.append(log)
                             self.save_logs_to_db(log)
+                            self.save_to_info_table(zone_id, event_type='occupied')
                 else:
                     if status['occupied']:
                         status['occupied'] = False
                         duration = current_time - status['entry_time'] if status['entry_time'] else 0
-                        log = f"[{time.strftime('%H:%M:%S')}] Zone '{self.zone_counts.get(zone_id, {}).get('name', 'N/A')}' - Slot {idx+1} VACATED ({duration/60:.1f} mins)"
+                        log = f"[{time.strftime('%H:%M:%S')}] '{self.zone_counts.get(zone_id, {}).get('name', 'N/A')}' - Slot {idx+1} VACATED ({duration/60:.1f} mins)"
+                        self.log_messages.append(log)
                         self.save_logs_to_db(log)
+                        self.save_to_info_table(zone_id, event_type='vacated')
                     status['detection_start_time'] = None
 
                 if status['occupied'] and zone_id in occupied_per_zone:

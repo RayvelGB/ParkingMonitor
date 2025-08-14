@@ -69,6 +69,8 @@ def createDB_and_tables():
                 id INT AUTO_INCREMENT PRIMARY KEY,
                 camera_id VARCHAR(36) UNIQUE,
                 detection_threshold FLOAT DEFAULT 0.35,
+                iou_threshold FLOAT DEFAULT 0.3,
+                confirmation_time INT DEFAULT 10,
                        
                 FOREIGN KEY (camera_id) REFERENCES cameras (id)
             )
@@ -421,6 +423,61 @@ def handle_crossing_event(camera_id: str, box_index: str, event_type: str):
                 save_to_info_db(camera_id, zone_id, event_type)
                 print(f"Event: Cam {camera_id} -> Zone {zone_id} -> {event_type}. New count: {detector.zone_counts[zone_id]['available']}")
 
+@app.post('/set_detection_type/{camera_id}')
+async def set_detection_type(camera_id: str, request: Request):
+    data = await request.json()
+    det_type = data.get('detection_type')
+    if det_type not in ['tripwire', 'parking']:
+        return JSONResponse(status_code=400, content={'success': False, 'error': 'Invalid detection type.'})
+    
+    try:
+        conn = mysql.connector.connect(**DB_CONFIG)
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute("UPDATE cameras SET detection_type = %s WHERE id = %s", (det_type, camera_id))
+        conn.commit()
+
+        if camera_id in video_detectors:
+            video_detectors[camera_id].stop()
+            del video_detectors[camera_id]
+    
+        cursor.execute("SELECT stream_url, camera_name FROM cameras WHERE id = %s", (camera_id,))
+        camera = cursor.fetchone()
+        
+        cursor.close()
+        conn.close()
+
+        if camera:
+            start_single_detector(camera_id, camera['stream_url'], camera['camera_name'], det_type)
+            return JSONResponse(content={'success': True})
+        else:
+            return JSONResponse(status_code=404, content={'success': False, 'error': 'Camera not found after update.'})
+
+    except mysql.connector.Error as err:
+        return JSONResponse(status_code=500, content={'success': False, 'error': f'Database error: {err}'})
+    
+@app.get('/get_detection_type/{camera_id}')
+def get_detection_type(camera_id: str, user_id: int):
+    if not verify_camera_ownership(camera_id, user_id):
+        return JSONResponse(status_code=403, content={'error': 'Permission denied.'})
+    
+    try:
+        conn = mysql.connector.connect(**DB_CONFIG)
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute("SELECT detection_type FROM cameras WHERE id = %s", (camera_id,))
+        det_type = cursor.fetchone()
+        cursor.close()
+        conn.close()
+        
+        if det_type:
+            return JSONResponse(content=det_type)
+        else:
+            return JSONResponse(content={
+                'detection_type': 'tripwire'
+            })
+        
+    except mysql.connector.Error as err:
+        return JSONResponse(status_code=500, content={'error': f'Database error: {err}'})
+
 # -- Bounding Box Endpoints --
 
 @app.get('/capture_frame/{camera_id}')
@@ -544,9 +601,11 @@ def get_zones(camera_id: str):
                 for zone in zones:
                     zone_id = zone['id']
                     if zone_id in detector.zone_counts:
+                        zone['total_spaces'] = detector.zone_counts[zone_id]['total']
                         zone['available_spaces'] = detector.zone_counts[zone_id]['available']
                     else:
-                        zone['available_spaces'] = zone['total_spaces']
+                        zone['total_spaces'] = 0
+                        zone['available_spaces'] = 0
         return JSONResponse(content=zones)
     
     except mysql.connector.Error as err:
@@ -620,17 +679,21 @@ async def save_settings(camera_id: str, request: Request):
         return JSONResponse(status_code=403, content={'error': 'Permission denied.'})
     
     detection_threshold = data.get('detection_threshold')
+    iou_threshold = data.get('iou_threshold')
+    confirmation_time = data.get('confirmation_time')
 
     try:
         conn = mysql.connector.connect(**DB_CONFIG)
         cursor = conn.cursor()
         query = """
-            INSERT INTO camera_settings (camera_id, detection_threshold) 
-            VALUES (%s, %s)
+            INSERT INTO camera_settings (camera_id, detection_threshold, iou_threshold, confirmation_time) 
+            VALUES (%s, %s, %s, %s)
             ON DUPLICATE KEY UPDATE 
-                detection_threshold = VALUES(detection_threshold)
+                detection_threshold = COALESCE(VALUES(detection_threshold), detection_threshold),
+                iou_threshold = COALESCE(VALUES(iou_threshold), iou_threshold),
+                confirmation_time = COALESCE(VALUES(confirmation_time), confirmation_time)
         """
-        cursor.execute(query, (camera_id, detection_threshold))
+        cursor.execute(query, (camera_id, detection_threshold, iou_threshold, confirmation_time))
         conn.commit()
         cursor.close()
         conn.close()
@@ -660,7 +723,9 @@ def get_settings(camera_id: str, user_id: int):
             return JSONResponse(content=settings)
         else:
             return JSONResponse(content={
-                'detection_threshold': 0.35
+                'detection_threshold': 0.35,
+                'iou_threshold': 0.3,
+                'confirmation_time': 10
             })
         
     except mysql.connector.Error as err:

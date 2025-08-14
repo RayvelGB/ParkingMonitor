@@ -121,6 +121,26 @@
                             <input id="detection-slider" type="range" min="0.1" max="0.9" step="0.05" value="0.35" class="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer">
                         </div>
 
+                        <div id="parking-settings">
+                            <!-- IOU Threshold -->
+                            <div class="mb-4">
+                                <label for="iou-slider" class="flex justify-between text-sm font-medium text-gray-300">
+                                    <span>IOU Threshold</span>
+                                    <span id="iou-value">0.3</span>
+                                </label>
+                                <input id="iou-slider" type="range" min="0.1" max="0.9" step="0.05" value="0.3" class="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer">
+                            </div>
+
+                            <!-- Confirmation Time Slider -->
+                            <div class="mb-4">
+                                <label for="confirmation-slider" class="flex justify-between text-sm font-medium text-gray-300">
+                                    <span>Confirmation Time (s)</span>
+                                    <span id="confirmation-value">5</span>
+                                </label>
+                                <input id="confirmation-slider" type="range" min="1" max="30" step="1" value="5" class="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer">
+                            </div>
+                        </div> 
+
                         <button id="save-settings-btn" class="w-full bg-blue-600 hover:bg-blue-700 py-2 rounded-lg flex items-center justify-center transition">
                             Save Settings
                         </button>
@@ -152,9 +172,11 @@
                         <button id="edit-bounds-btn" class="bg-gray-600 hover:bg-gray-500 px-3 py-1 rounded text-sm flex items-center flex-shrink-0">
                             <i class="fas fa-layer-group mr-2"></i> Edit Bounds
                         </button>
-                        <button id="set-spaces-btn" class="bg-gray-600 hover:bg-gray-500 px-3 py-1 rounded text-sm flex items-center flex-shrink-0">
+                        <div id="set-spaces">
+                            <button id="set-spaces-btn" class="bg-gray-600 hover:bg-gray-500 px-3 py-1 rounded text-sm flex items-center flex-shrink-0">
                             <i class="fas fa-draw-polygon mr-2"></i> Set Spaces
-                        </button>
+                            </button>
+                        </div>
                         <button id="delete-camera-btn" class="bg-red-600 hover:bg-red-700 px-3 py-1 rounded text-sm flex items-center flex-shrink-0">
                             <i class="fas fa-trash mr-2"></i> Delete
                         </button>
@@ -225,6 +247,10 @@
                             </div>
                         </div>
                         <div class="flex justify-between">
+                            <span class="text-gray-400">Detection Type:</span>
+                            <span id="detection-type" class="font-mono text-gray-300">--</span>
+                        </div>
+                        <div class="flex justify-between">
                             <span class="text-gray-400">Last Log Update:</span>
                             <span id="last-updated" class="font-mono text-gray-300">--</span>
                         </div>
@@ -292,9 +318,11 @@
             const cameraIdDisplayEl = document.getElementById('camera-id-display');
             const lastUpdatedEl = document.getElementById('last-updated');
             const streamStatusIndicator = document.getElementById('stream-status-indicator');
+            const detectionTypeEl = document.getElementById('detection-type');
             
             // --- Buttons above feed ---
             const editBoundsBtn = document.getElementById('edit-bounds-btn');
+            const setSpaces = document.getElementById('set-spaces');
             const setSpacesBtn = document.getElementById('set-spaces-btn');
             const deleteCamBtn = document.getElementById('delete-camera-btn');
             const prevCamBtn = document.getElementById('prev-camera-btn');
@@ -313,13 +341,20 @@
             // --- Settings Elements ---
             const settingsMenuButton = document.getElementById('settings-menu-button');
             const settingsMenu = document.getElementById('settings-menu');
+            const parkingSettings = document.getElementById('parking-settings');
             const detectionSlider = document.getElementById('detection-slider');
             const detectionValue = document.getElementById('detection-value');
+            const iouSlider = document.getElementById('iou-slider');
+            const iouValue = document.getElementById('iou-value');
+            const iouContainer = document.getElementById('iou-container');
+            const confirmationSlider = document.getElementById('confirmation-slider');
+            const confirmationValue = document.getElementById('confirmation-value');
             const saveSettingsBtn = document.getElementById('save-settings-btn');
             const settingsStatus = document.getElementById('settings-status');
 
             // --- Initial State & Auth ---
             let currentCameraId = null;
+            let detectionType = null;
             const urlParams = new URLSearchParams(window.location.search);
             const user = JSON.parse(sessionStorage.getItem('user'));
             let totalParkingSpaces = null;
@@ -401,6 +436,23 @@
                         }
                     });
             }
+            
+            async function getDetectionType(camId) {
+                try {
+                    response = await fetch(`/get_detection_type/${camId}?user_id=${user.user_id}`);
+                    const details = await response.json();
+
+                    if (!response.ok) {
+                        throw new Error('Failed to fetch camera detection type.')
+                    }
+
+                    return details.detection_type;
+
+                } catch (error) {
+                    console.error("Error getting detection type:", error);
+                    return error;
+                }
+            }
 
             function stopStream() {
                 if (currentCameraId) {
@@ -425,7 +477,7 @@
             logoutBtn.addEventListener('click', logout);
             changeAccountBtn.addEventListener('click', logout);
 
-            function switchCamera(newIndex) {
+            async function switchCamera(newIndex) {
                 if (newIndex < 0 || newIndex >= allCameras.length) {
                     return; // Index out of bounds
                 }
@@ -464,6 +516,19 @@
                 videoFeed.classList.remove('hidden');
                 streamStatusIndicator.innerHTML = `<div class="w-2 h-2 bg-green-500 rounded-full mr-2 live-indicator"></div><span class="font-medium text-green-400">Online</span>`;
 
+                detectionType = await getDetectionType(currentCameraId);
+                if (detectionType === 'tripwire') {
+                    detectionTypeEl.textContent = 'Tripwire Detection';
+                    parkingSettings.classList.add('hidden');
+                    setSpaces.classList.remove('hidden');
+                } else if (detectionType === 'parking') {
+                    detectionTypeEl.textContent = 'Parking Detection';
+                    parkingSettings.classList.remove('hidden');
+                    setSpaces.classList.add('hidden');
+                } else {
+                    detectionTypeEl.textContent = 'Unknown';
+                }
+
                 const newUrl = `/stream.html?camera_id=${currentCameraId}`;
                 history.pushState({ path: newUrl }, '', newUrl);
                 prevCamBtn.disabled = currentCameraIndex === 0;
@@ -473,7 +538,7 @@
                 statsInterval = setInterval(() => fetchStats(currentCameraId), 2000);
                 fetchLogs(currentCameraId);
                 logInterval = setInterval(() => fetchLogs(currentCameraId), 2000);
-                loadSettings(currentCameraId);
+                loadSettings(currentCameraId, detectionType);
             }
 
              async function initializePage() {
@@ -482,7 +547,6 @@
                     if (!response.ok) throw new Error(`Server error: ${response.status}`);
                     
                     const cameras = await response.json();
-                    
                     
                     allCameras = cameras.map(cam => ({
                         id: cam.id,
@@ -536,7 +600,8 @@
                             logTbody.innerHTML = ''; // Clear existing logs
                             data.logs.reverse().forEach(msg => {
                                 let eventType = '', eventIcon = '', iconColor = '', slotText = '--', details = '';
-
+                                
+                                // Tripwire log matching
                                 if (msg.includes('ENTRY')) {
                                     eventType = 'Entry'; eventIcon = 'fa-car'; iconColor = 'text-green-400';
                                     const match = msg.match(/\[(.*?)\] (.*?) \((ENTRY)\)/);
@@ -551,6 +616,23 @@
                                     if (match) {
                                         slotText = match[2];
                                         details = `Vehicle exited at ${match[1]}`;
+                                    }
+                                } else if (msg.includes('VACATED')) {
+                                    eventType = 'Vacated'; eventIcon = 'fa-car'; iconColor = 'text-green-400';
+                                    const match = msg.match(/\[(.*?)\] '(.*?)' - Slot (\d+) VACATED \((.*)\)/);
+
+                                    if (match) {
+                                        slotText = `${match[2]} - Slot ${match[3]}`;
+                                        details = `Slot vacated. Occupied for ${match[4]}`;
+                                    }
+
+                                } else if (msg.includes('OCCUPIED')) {
+                                    eventType = 'Occupied'; eventIcon = 'fa-car-side'; iconColor = 'text-red-400';
+                                    const match = msg.match(/\[(.*?)\] '(.*?)' - Slot (\d+) OCCUPIED/);
+
+                                    if (match) {
+                                        slotText = `${match[2]} - Slot ${match[3]}`;
+                                        details = `Vehicle entry detected at ${match[1]}`;
                                     }
                                 }
 
@@ -594,18 +676,32 @@
                 }
             });
 
+            // Slide Events
             detectionSlider.addEventListener('input', () => {
                 detectionValue.textContent = parseFloat(detectionSlider.value).toFixed(2);
             });
+            iouSlider.addEventListener('input', () => {
+                iouValue.textContent = parseFloat(iouSlider.value).toFixed(2);
+            });
+            confirmationSlider.addEventListener('input', () => {
+                confirmationValue.textContent = confirmationSlider.value;
+            });
 
 
-            function loadSettings(camId) {
+            function loadSettings(camId, detectionType) {
                 if (!camId) return;
                 fetch(`/get_settings/${camId}?user_id=${user.user_id}`)
                     .then(res => res.json())
                     .then(settings => {
                         detectionSlider.value = settings.detection_threshold;
                         detectionValue.textContent = parseFloat(settings.detection_threshold).toFixed(2);
+
+                        if (detectionType === 'parking') {
+                            iouSlider.value = settings.iou_threshold || 0.3;
+                            iouValue.textContent = parseFloat(iouSlider.value).toFixed(2);
+                            confirmationSlider.value = settings.confirmation_time || 10;
+                            confirmationValue.textContent = confirmationSlider.value;
+                        }
                     });
             }
 
@@ -615,28 +711,30 @@
                 }
                 settingsStatus.textContent = 'Saving...';
 
-                const saveThresholdPromise = fetch(`/save_settings/${currentCameraId}`, {
+                const settings = {
+                    user_id: user.user_id,
+                    detection_threshold: parseFloat(detectionSlider.value)
+                };
+
+                if (detectionType === 'parking') {
+                    settings.iou_threshold = parseFloat(iouSlider.value);
+                    settings.confirmation_time = parseInt(confirmationSlider.value, 10);
+                }
+
+                fetch(`/save_settings/${currentCameraId}`, {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({
-                        user_id: user.user_id,
-                        detection_threshold: parseFloat(detectionSlider.value)
-                    })
-                }).then(res => res.json());
-
-                Promise.all([saveThresholdPromise])
-                    .then(([thresholdResult]) => {
-                        if (thresholdResult.success) {
-                            settingsStatus.textContent = 'Settings saved successfully!';
-                        } else {
-                            settingsStatus.textContent = 'Error saving settings.';
-                        }
+                    body: JSON.stringify(settings)
+                })
+                .then(res => res.json())
+                .then(result => {
+                    if (result.success) {
+                        settingsStatus.textContent = 'Settings saved successfully!';
                         setTimeout(() => settingsStatus.textContent = '', 2000);
-                    })
-                    .catch(err => {
-                        console.error('Save error:', err);
-                        settingsStatus.textContent = 'Error connecting to server.';
-                    });
+                    } else {
+                        settingsStatus.textContent = 'Error saving settings.';
+                    }
+                });
             });
 
             deleteCamBtn.addEventListener('click', () => {
