@@ -98,7 +98,6 @@
                                 <p id="user-name" class="truncate"></p>
                             </div>
                             <a href="/register_camera.html" id="manage-camera-btn" class="block px-4 py-2 text-sm text-gray-300 hover:bg-gray-700">Manage Cameras</a>
-                            <a href="#" id="change-account-btn" class="block px-4 py-2 text-sm text-gray-300 hover:bg-gray-700">Change Account</a>
                             <a href="#" id="logout-btn" class="block px-4 py-2 text-sm text-gray-300 hover:bg-gray-700">Log Out</a>
                         </div>
                     </div>
@@ -334,8 +333,6 @@
             const userMenu = document.getElementById('user-menu');
             const userInitial = document.getElementById('user-initial');
             const userNameEl = document.getElementById('user-name');
-            const manageCamBtn = document.getElementById('manage-camera-btn');
-            const changeAccountBtn = document.getElementById('change-account-btn');
             const logoutBtn = document.getElementById('logout-btn');
 
             // --- Settings Elements ---
@@ -475,7 +472,6 @@
             });
 
             logoutBtn.addEventListener('click', logout);
-            changeAccountBtn.addEventListener('click', logout);
 
             async function switchCamera(newIndex) {
                 if (newIndex < 0 || newIndex >= allCameras.length) {

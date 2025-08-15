@@ -183,7 +183,7 @@ class TripwireDetector:
                     local_frame_copy = self.raw_frame.copy()
 
             if local_frame_copy is None:
-                time.sleep(0.05)
+                time.sleep(0.01)
                 continue
 
             img_tensor = self.img_transform(local_frame_copy)
@@ -223,7 +223,7 @@ class TripwireDetector:
             with self.frame_lock:
                 self.processed_frame = local_frame_copy
             
-            time.sleep(0.01)
+            time.sleep(0.005)
     
     # -- Generate video feed --
     def generate(self):
@@ -235,7 +235,7 @@ class TripwireDetector:
                         frame_to_send = self.processed_frame.copy()
                 
                 if frame_to_send is None:
-                    time.sleep(0.3)
+                    time.sleep(0.01)
                     continue
 
                 ret, buffer = cv2.imencode('.jpg', frame_to_send)
@@ -499,7 +499,7 @@ class ParkingDetector:
                     local_frame_copy = self.raw_frame.copy()
 
             if local_frame_copy is None:
-                time.sleep(0.05)
+                time.sleep(0.01)
                 continue
 
             img_tensor = self.img_transform(local_frame_copy)
@@ -555,7 +555,7 @@ class ParkingDetector:
             with self.frame_lock:
                 self.processed_frame = local_frame_copy
 
-            time.sleep(0.01)
+            time.sleep(0.005)
     
     # -- Generate video feed --
     def generate(self):
@@ -567,7 +567,7 @@ class ParkingDetector:
                         frame_to_send = self.processed_frame.copy()
                 
                 if frame_to_send is None:
-                    time.sleep(0.3)
+                    time.sleep(0.01)
                     continue
 
                 ret, buffer = cv2.imencode('.jpg', frame_to_send)

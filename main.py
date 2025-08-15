@@ -116,7 +116,8 @@ def createDB_and_tables():
             )
 
         """)
-
+        
+        # Create info table
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS info (
                 id INT AUTO_INCREMENT PRIMARY KEY,
@@ -153,13 +154,13 @@ def start_all_detectors():
     try:
         conn = mysql.connector.connect(**DB_CONFIG)
         cursor = conn.cursor(dictionary=True)
-        cursor.execute("SELECT id, stream_url, camera_name, detection_type FROM cameras")
+        cursor.execute("SELECT id, stream_url, camera_name, detection_type FROM cameras") # Grab camera_id, rtsp_url, and cameraname from database
         all_cameras = cursor.fetchall()
         cursor.close()
         conn.close()
 
         for camera in all_cameras:
-            if camera['id'] not in video_detectors:
+            if camera['id'] not in video_detectors: # If camera currently not running, start it up
                 start_single_detector(camera['id'], camera['stream_url'], camera['camera_name'], camera['detection_type'])
         print(f'Completed startup. {len(video_detectors)} detectors are running.')
 
@@ -179,7 +180,7 @@ def stop_all_detectors():
         for camera in all_cameras:
             camera_id = camera['id']
 
-            if camera_id in video_detectors:
+            if camera_id in video_detectors: # If camera is currently running, stop it and remove from list
                 video_detectors[camera_id].stop()
                 del video_detectors[camera_id]
         print('All detectors have been stopped.')
@@ -190,6 +191,7 @@ def stop_all_detectors():
 def start_single_detector(camera_id: str, rtsp_url: str, name: str, det_type: str):
     if camera_id not in video_detectors:
         print(f"Initializing detector for camera: {camera_id}")
+        # Use different classes for different detection types
         if det_type == 'tripwire':
             detector = TripwireDetector(rtsp_url, camera_id, event_callback=handle_crossing_event)
         elif det_type == 'parking':
@@ -206,7 +208,7 @@ def video_feed(camera_id: str):
         return JSONResponse(status_code=404, content={'error': 'Camera not found.'})
     
     detector = video_detectors[camera_id]
-    return StreamingResponse(detector.generate(), media_type='multipart/x-mixed-replace; boundary=frame')
+    return StreamingResponse(detector.generate(), media_type='multipart/x-mixed-replace; boundary=frame') # Start the stream
 
 @app.post('/stop_all_streams')
 def stop_stream():
@@ -356,7 +358,7 @@ def get_cameras(user_id: int):
     try:
         conn = mysql.connector.connect(**DB_CONFIG)
         cursor = conn.cursor(dictionary=True)
-        cursor.execute("SELECT id, camera_name FROM cameras WHERE user_id = %s", (user_id,))
+        cursor.execute("SELECT id, camera_name, detection_type FROM cameras WHERE user_id = %s", (user_id,))
         cameras = cursor.fetchall()
         cursor.close()
         conn.close()

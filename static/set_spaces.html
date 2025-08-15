@@ -35,6 +35,22 @@
                     <i class="fas fa-clock text-blue-400 mr-2"></i>
                     <span id="current-time" class="font-mono">00:00:00</span>
                 </div>
+                <!-- User Account Dropdown -->
+                <div class="relative">
+                    <button id="user-menu-button" class="w-10 h-10 bg-gray-700 rounded-full flex items-center justify-center text-lg font-semibold text-white focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-800 focus:ring-white">
+                        <span id="user-initial">?</span>
+                    </button>
+                    <div id="user-menu" class="dropdown-menu hidden absolute right-0 mt-2 w-56 origin-top-right bg-gray-800 rounded-md shadow-lg z-10">
+                        <div class="py-1">
+                            <div class="px-4 py-2 text-sm text-gray-300 border-b border-gray-700">
+                                <p class="font-semibold">Signed in as</p>
+                                <p id="user-name" class="truncate"></p>
+                            </div>
+                            <a href="/register_camera.html" id="manage-camera-btn" class="block px-4 py-2 text-sm text-gray-300 hover:bg-gray-700">Manage Cameras</a>
+                            <a href="#" id="logout-btn" class="block px-4 py-2 text-sm text-gray-300 hover:bg-gray-700">Log Out</a>
+                        </div>
+                    </div>
+                </div>
             </div>
         </header>
 
@@ -69,7 +85,7 @@
                             <i class="fas fa-save mr-2"></i> Save All Changes
                         </button>
                          <button id="back-to-stream-btn" class="w-full bg-gray-600 hover:bg-gray-700 py-2 rounded-lg flex items-center justify-center transition">
-                            <i class="fas fa-arrow-left mr-2"></i> Back to Camera Management
+                            <i class="fas fa-arrow-left mr-2"></i> Back to Stream
                         </button>
                     </div>
                      <p id="status" class="text-center text-gray-400 min-h-[24px] mt-4"></p>
@@ -85,6 +101,13 @@
     
     <script>
         document.addEventListener('DOMContentLoaded', () => {
+            const userMenuButton = document.getElementById('user-menu-button');
+            const userMenu = document.getElementById('user-menu');
+            const userInitial = document.getElementById('user-initial');
+            const userNameEl = document.getElementById('user-name');
+            const logoutBtn = document.getElementById('logout-btn');
+            const currentTimeEl = document.getElementById('current-time');
+
             const cameraSelect = document.getElementById('camera-select');
             const zoneManagementSection = document.getElementById('zone-management-section');
             const zoneListContainer = document.getElementById('zone-list-container');
@@ -92,7 +115,6 @@
             const saveBtn = document.getElementById('save-btn');
             const backBtn = document.getElementById('back-to-stream-btn');
             const statusEl = document.getElementById('status');
-            const currentTimeEl = document.getElementById('current-time');
             const addZoneBtn = document.getElementById('add-zone-btn');
             const zoneNameInput = document.getElementById('zone-name-input');
 
@@ -104,6 +126,31 @@
                 return;
             }
 
+            // --- Populate User Menu ---
+            if(user && user.username) {
+                userInitial.textContent = user.username.charAt(0).toUpperCase();
+                userNameEl.textContent = user.username;
+            }
+
+            userMenuButton.addEventListener('click', (event) => {
+                event.stopPropagation(); // Prevents the window click listener from firing immediately
+                userMenu.classList.toggle('hidden');
+            });
+
+            // *** NEW: Close dropdown when clicking outside ***
+            window.addEventListener('click', (event) => {
+                if (!userMenu.classList.contains('hidden') && !userMenuButton.contains(event.target)) {
+                    userMenu.classList.add('hidden');
+                }
+            });
+
+            function logout() {
+                sessionStorage.removeItem('user');
+                window.location.href = '/';
+            }
+
+            logoutBtn.addEventListener('click', logout);
+
             function updateTime() { currentTimeEl.textContent = new Date().toLocaleTimeString(); }
             setInterval(updateTime, 1000);
             updateTime();
@@ -114,10 +161,12 @@
                     .then(cameras => {
                         if (cameras && cameras.length > 0) {
                             cameras.forEach(camera => {
-                                const option = document.createElement('option');
-                                option.value = camera.id;
-                                option.textContent = camera.camera_name || `Camera ${camera.id.substring(0,8)}`;
-                                cameraSelect.appendChild(option);
+                                if (camera.detection_type === 'tripwire') {
+                                    const option = document.createElement('option');
+                                    option.value = camera.id;
+                                    option.textContent = camera.camera_name || `Camera ${camera.id.substring(0,8)}`;
+                                    cameraSelect.appendChild(option);
+                                }
                             });
                         }
                     });
@@ -236,7 +285,7 @@
             });
 
             backBtn.addEventListener('click', () => {
-                window.location.href = `/register_camera.html`;
+                window.location.href = `/stream.html?camera_id=${selectedCameraId}`;
             });
 
             // Initial Load
