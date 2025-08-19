@@ -806,54 +806,75 @@ def save_to_info_db(camera_id, zone_id, event_type):
     if not detector:
         return
     
+    # This check is crucial. We should not proceed if zone_id is None.
+    if zone_id is None:
+        print("--- ERROR: save_to_info_db called with zone_id = None. Aborting. ---")
+        return
+
     try:
-        # --- Step 1: Fetch only the zones for THIS camera ---
-        conn_entry_db = mysql.connector.connect(**DB_CONFIG)
-        cursor_entry = conn_entry_db.cursor(dictionary=True)
-        
-        # Fetch zones belonging only to the current camera_id, sorted by their creation order (id)
-        query_zones = "SELECT id FROM zones WHERE camera_id = %s ORDER BY id ASC"
-        cursor_entry.execute(query_zones, (camera_id,))
-        camera_zones = cursor_entry.fetchall()
-        
-        cursor_entry.close()
-        conn_entry_db.close()
+        conn = mysql.connector.connect(**DGROUP_CONFIG)
+        cursor = conn.cursor(dictionary=True)
 
-        # Create a map from zone_id to a sequential zgroup number FOR THIS CAMERA
-        zgroup_map = {zone['id']: f"{i:02}" for i, zone in enumerate(camera_zones, start=1)}
+        cam_ip = get_camera_ip(detector.rtsp_url)
 
-        # --- Step 2: Connect to the dgroup database to save the data ---
-        conn_dgroup = mysql.connector.connect(**DGROUP_CONFIG)
-        cursor_dgroup = conn_dgroup.cursor()
+        # --- Step 1: Explicitly check if a row for this zone already exists ---
+        cursor.execute("SELECT id, zgroup, cup, cdw FROM dgroup WHERE zone_id = %s", (zone_id,))
+        existing_row = cursor.fetchone()
 
-        # Get the correct zgroup for the current zone_id from the camera-specific map
-        zgroup = zgroup_map.get(zone_id, "N/A")
-        
+        # --- Step 2: Prepare the data that is common to both insert and update ---
         current_date = time.strftime("%Y-%m-%d")
         current_time = time.strftime("%H:%M:%S")
-        cam_ip = get_camera_ip(detector.rtsp_url)
         keterangan = detector.camera_name + ' ' + detector.zone_counts[zone_id]['name']
         jml = detector.zone_counts[zone_id]['total']
-        cup = 1 if event_type == 'EXIT' else 0
-        cdw = 1 if event_type == 'ENTRY' else 0
+        
+        if existing_row:
+            # --- LOGIC FOR EXISTING ROW: UPDATE ---
+            print(f"--- DEBUG: Found row for zone_id {zone_id}. Updating. ---")
+            
+            # Use the existing zgroup
+            zgroup = existing_row['zgroup']
+            
+            # Calculate new cup/cdw counts by adding to the old ones
+            new_cup = existing_row['cup'] + (1 if event_type == 'EXIT' else 0)
+            new_cdw = existing_row['cdw'] + (1 if event_type == 'ENTRY' else 0)
 
-        query_insert = """
-            INSERT INTO dgroup (zone_id, zgroup, ip_kamera, zdesc, tgl, jam, jml, cup, cdw, adj, `default`, status, isFull, min)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 0, 1, 0, 1, 0)
-            ON DUPLICATE KEY UPDATE
-                zgroup = VALUES(zgroup),
-                tgl = VALUES(tgl),
-                jam = VALUES(jam),
-                zdesc = VALUES(zdesc),
-                cup = cup + VALUES(cup),
-                cdw = cdw + VALUES(cdw),
-                jml = VALUES(jml)
-        """
-        cursor_dgroup.execute(query_insert, (zone_id, zgroup, cam_ip, keterangan, current_date, current_time, jml, cup, cdw))
+            update_query = """
+                UPDATE dgroup 
+                SET cup = %s, cdw = %s, jml = CASE WHEN jml = 0 THEN %s ELSE jml END
+                WHERE zone_id = %s
+            """
+            # Use a non-dictionary cursor for executing with tuple placeholders
+            execute_cursor = conn.cursor()
+            execute_cursor.execute(update_query, (new_cup, new_cdw, jml, zone_id))
+            execute_cursor.close()
 
-        conn_dgroup.commit()
-        cursor_dgroup.close()
-        conn_dgroup.close()
+        else:
+            # --- LOGIC FOR NEW ROW: INSERT ---
+            print(f"--- DEBUG: No row for zone_id {zone_id}. Inserting. ---")
+            
+            # Calculate the next available zgroup for this camera
+            cursor.execute("SELECT COUNT(*) as zone_count FROM dgroup WHERE ip_kamera = %s", (cam_ip,))
+            count_result = cursor.fetchone()
+            new_zgroup_number = count_result['zone_count'] + 1
+            zgroup = f"{new_zgroup_number:02}"
+            
+            # Set initial cup/cdw counts
+            cup = 1 if event_type == 'EXIT' else 0
+            cdw = 1 if event_type == 'ENTRY' else 0
+
+            insert_query = """
+                INSERT INTO dgroup 
+                    (zone_id, zgroup, ip_kamera, zdesc, tgl, jam, jml, cup, cdw, adj, `default`, status, isFull, min)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 0, 1, 0, 1, 0)
+            """
+            # Use a non-dictionary cursor for executing with tuple placeholders
+            execute_cursor = conn.cursor()
+            execute_cursor.execute(insert_query, (zone_id, zgroup, cam_ip, keterangan, current_date, current_time, jml, cup, cdw))
+            execute_cursor.close()
+
+        conn.commit()
+        cursor.close()
+        conn.close()
 
     except mysql.connector.Error as err:
         print(f"Error saving to info table: {err}")
