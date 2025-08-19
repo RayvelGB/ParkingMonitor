@@ -99,13 +99,30 @@ class TripwireDetector:
                 self.detection_threshold = settings.get('detection_threshold', 0.35)
                 print(f"[{time.strftime('%H:%M:%S')}] Loaded settings: DET={self.detection_threshold}")
 
-            cursor.execute("SELECT id, zone_name, total_spaces FROM zones WHERE camera_id = %s", (self.camera_id,))
+            query = """
+                SELECT
+                    z.id,
+                    z.zone_name,
+                    dg.jml AS total_spaces,
+                    dg.cup,
+                    dg.cdw
+                FROM
+                    zones z
+                LEFT JOIN
+                    sap8di.dgroup dg on z.id = dg.zone_id
+                WHERE
+                    camera_id = %s
+                ORDER BY
+                    z.id ASC
+            """
+
+            cursor.execute(query, (self.camera_id,))
             zones = cursor.fetchall()
             self.zone_counts = {
                 zone['id']: {
                     'name': zone['zone_name'],
                     'total': zone['total_spaces'],
-                    'available': zone['total_spaces']
+                    'available': zone['total_spaces'] - (zone['cdw'] - zone['cup'])
                 } for zone in zones
             }
             print(f"Loaded {len(self.zone_counts)} zones for camera {self.camera_id}.")
@@ -295,10 +312,8 @@ class ParkingDetector:
         self.model = self.load_model()
         
         self.parking_boxes_data = []
-        self.total_spaces = 0
         self.slot_status = {}
         self.log_messages = []
-        self.available_slots = 0
 
         self.detection_threshold = 0.35
         self.iou_threshold = 0.3

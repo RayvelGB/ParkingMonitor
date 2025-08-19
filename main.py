@@ -133,7 +133,6 @@ def createDB_and_tables():
                 id INT AUTO_INCREMENT PRIMARY KEY,
                 camera_id VARCHAR(36) NOT NULL,
                 zone_name VARCHAR(50) NOT NULL,
-                total_spaces INT DEFAULT 0,
                        
                 FOREIGN KEY (camera_id) REFERENCES cameras (id) ON DELETE CASCADE,
                 UNIQUE KEY (camera_id, zone_name)
@@ -608,7 +607,7 @@ async def create_zones(camera_id: str, request: Request):
     try:
         conn = mysql.connector.connect(**DB_CONFIG)
         cursor = conn.cursor()
-        cursor.execute("INSERT INTO zones (camera_id, zone_name, total_spaces) VALUES (%s, %s, 0)", (camera_id, zone_name))
+        cursor.execute("INSERT INTO zones (camera_id, zone_name) VALUES (%s, %s)", (camera_id, zone_name))
         conn.commit()
         new_zone_id = cursor.lastrowid
         cursor.close()
@@ -623,7 +622,23 @@ def get_zones(camera_id: str):
     try:
         conn = mysql.connector.connect(**DB_CONFIG)
         cursor = conn.cursor(dictionary=True)
-        cursor.execute("SELECT id, zone_name, total_spaces FROM zones WHERE camera_id = %s", (camera_id,))
+
+        query = """
+            SELECT
+                z.id,
+                z.zone_name,
+                dg.jml AS total_spaces
+            FROM
+                zones z
+            LEFT JOIN
+                sap8di.dgroup dg on z.id = dg.zone_id
+            WHERE
+                camera_id = %s
+            ORDER BY
+                z.id ASC
+        """
+
+        cursor.execute(query, (camera_id,))
         zones = cursor.fetchall()
         cursor.close()
         conn.close()
@@ -671,23 +686,26 @@ async def delete_zone(zone_id: int, request: Request):
     except mysql.connector.Error as err:
         return JSONResponse(status_code=500, content={'success': False, 'error': f'Database error: {err}'})
     
-@app.post('/update_zone_spaces')
-async def update_zone_spaces(request: Request):
+@app.post('/update_zone_spaces/{camera_id}')
+async def update_zone_spaces(camera_id: str, request: Request):
     data = await request.json()
     zone_data = data.get('zone_data', [])
     try:
-        conn = mysql.connector.connect(**DB_CONFIG)
+        conn = mysql.connector.connect(**DGROUP_CONFIG)
         cursor = conn.cursor()
 
         for item in zone_data:
             zone_id = item.get('id')
             total_spaces = item.get('spaces')
             if zone_id is not None and isinstance(total_spaces, int) and total_spaces >= 0:
-                cursor.execute("UPDATE zones SET total_spaces = %s WHERE id = %s", (total_spaces, zone_id))
+                cursor.execute("UPDATE dgroup SET jml = %s WHERE zone_id = %s", (total_spaces, zone_id))
 
         conn.commit()
         cursor.close()
         conn.close()
+
+        if camera_id in video_detectors:
+            video_detectors[camera_id].reload_configuration()
         return JSONResponse(content={'success': True})
     
     except mysql.connector.Error as err:

@@ -265,7 +265,7 @@
                 });
 
                 statusEl.textContent = 'Saving...';
-                fetch('/update_zone_spaces', {
+                fetch(`/update_zone_spaces/${selectedCameraId}`, {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({
