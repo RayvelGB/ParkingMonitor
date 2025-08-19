@@ -108,7 +108,7 @@ def createDB_and_tables():
                 user_id INT,
                 camera_name VARCHAR(50) NOT NULL,
                 stream_url VARCHAR(191) NOT NULL,
-                detection_type VARCHAR(50) DEFAULT 'tripwire',
+                detection_type VARCHAR(50) DEFAULT 'parking',
                        
                 FOREIGN KEY (user_id) REFERENCES users (id)
             )
@@ -504,7 +504,7 @@ def get_detection_type(camera_id: str, user_id: int):
             return JSONResponse(content=det_type)
         else:
             return JSONResponse(content={
-                'detection_type': 'tripwire'
+                'detection_type': 'parking'
             })
         
     except mysql.connector.Error as err:
