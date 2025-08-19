@@ -27,6 +27,20 @@ def on_startup():
     cleanup_thread.start()
 
 # -- Database Configuration --
+# DB_CONFIG = {
+#     'host': '192.168.0.29',
+#     'user': 'root',
+#     'password': '1234',
+#     'database': 'entry_db'
+# }
+
+# DGROUP_CONFIG = {
+#     'host': '192.168.0.29',
+#     'user': 'root',
+#     'password': '1234',
+#     'database': 'sap8di'
+# }
+
 DB_CONFIG = {
     'host': 'localhost',
     'user': 'root',
@@ -34,9 +48,46 @@ DB_CONFIG = {
     'database': 'entry_db'
 }
 
+DGROUP_CONFIG = {
+    'host': 'localhost',
+    'user': 'root',
+    'password': '',
+    'database': 'sap8di'
+}
+
+
 # Setup database
 def createDB_and_tables():
     try:
+        conn = mysql.connector.connect(**DGROUP_CONFIG)
+        cursor = conn.cursor()
+
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS dgroup (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                zgroup VARCHAR(50),
+                ip_kamera VARCHAR(50),
+                zdesc VARCHAR(101),
+                tgl DATE,
+                jam TIME,
+                jml INT,
+                cup INT,
+                cdw INT,
+                adj INT,
+                `default` INT,
+                status INT,
+                isFull INT,
+                min INT,
+                zone_id INT UNIQUE,
+                       
+                FOREIGN KEY (zone_id) REFERENCES entry_db.zones (id) ON DELETE CASCADE
+            )
+        """)
+
+        conn.commit()
+        cursor.close()
+        conn.close()
+        
         conn = mysql.connector.connect(**DB_CONFIG)
         cursor = conn.cursor()
 
@@ -81,8 +132,9 @@ def createDB_and_tables():
             CREATE TABLE IF NOT EXISTS zones (
                 id INT AUTO_INCREMENT PRIMARY KEY,
                 camera_id VARCHAR(36) NOT NULL,
-                zone_name VARCHAR(255) NOT NULL,
+                zone_name VARCHAR(50) NOT NULL,
                 total_spaces INT DEFAULT 0,
+                       
                 FOREIGN KEY (camera_id) REFERENCES cameras (id) ON DELETE CASCADE,
                 UNIQUE KEY (camera_id, zone_name)
             )
@@ -115,28 +167,6 @@ def createDB_and_tables():
                 FOREIGN KEY (camera_id) REFERENCES cameras (id)
             )
 
-        """)
-        
-        # Create info table
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS info (
-                id INT AUTO_INCREMENT PRIMARY KEY,
-                ip_kamera VARCHAR(50),
-                zone_id INT UNIQUE,
-                keterangan VARCHAR(101),
-                tgl DATE,
-                jam TIME,
-                jml INT,
-                cup INT,
-                cdw INT,
-                adj INT,
-                `default` INT,
-                status INT,
-                isFull INT,
-                min INT,
-
-                FOREIGN KEY (zone_id) REFERENCES zones (id)
-            )
         """)
 
         conn.commit()
@@ -416,13 +446,14 @@ def handle_crossing_event(camera_id: str, box_index: str, event_type: str):
                 if event_type == 'ENTRY':
                     detector.zone_counts[zone_id]['available'] = detector.zone_counts[zone_id]['available'] - 1
                     log = f'[{timestamp}] {zone_name} (ENTRY)'
+                    save_to_info_db(camera_id, zone_id, event_type)
 
                 elif event_type == 'EXIT':
                     detector.zone_counts[zone_id]['available'] = detector.zone_counts[zone_id]['available'] + 1
                     log = f'[{timestamp}] {zone_name} (EXIT)'
+                    save_to_info_db(camera_id, zone_id, event_type)
                 
                 save_log_to_db(camera_id, log)
-                save_to_info_db(camera_id, zone_id, event_type)
                 print(f"Event: Cam {camera_id} -> Zone {zone_id} -> {event_type}. New count: {detector.zone_counts[zone_id]['available']}")
 
 @app.post('/set_detection_type/{camera_id}')
@@ -776,32 +807,53 @@ def save_to_info_db(camera_id, zone_id, event_type):
         return
     
     try:
-        conn = mysql.connector.connect(**DB_CONFIG)
-        cursor = conn.cursor()
+        # --- Step 1: Fetch only the zones for THIS camera ---
+        conn_entry_db = mysql.connector.connect(**DB_CONFIG)
+        cursor_entry = conn_entry_db.cursor(dictionary=True)
+        
+        # Fetch zones belonging only to the current camera_id, sorted by their creation order (id)
+        query_zones = "SELECT id FROM zones WHERE camera_id = %s ORDER BY id ASC"
+        cursor_entry.execute(query_zones, (camera_id,))
+        camera_zones = cursor_entry.fetchall()
+        
+        cursor_entry.close()
+        conn_entry_db.close()
 
-        current_date =  time.strftime("%Y-%m-%d")
+        # Create a map from zone_id to a sequential zgroup number FOR THIS CAMERA
+        zgroup_map = {zone['id']: f"{i:02}" for i, zone in enumerate(camera_zones, start=1)}
+
+        # --- Step 2: Connect to the dgroup database to save the data ---
+        conn_dgroup = mysql.connector.connect(**DGROUP_CONFIG)
+        cursor_dgroup = conn_dgroup.cursor()
+
+        # Get the correct zgroup for the current zone_id from the camera-specific map
+        zgroup = zgroup_map.get(zone_id, "N/A")
+        
+        current_date = time.strftime("%Y-%m-%d")
         current_time = time.strftime("%H:%M:%S")
-
         cam_ip = get_camera_ip(detector.rtsp_url)
-        keterangan = detector.camera_name +  ' ' + detector.zone_counts[zone_id]['name']
+        keterangan = detector.camera_name + ' ' + detector.zone_counts[zone_id]['name']
+        jml = detector.zone_counts[zone_id]['total']
+        cup = 1 if event_type == 'EXIT' else 0
+        cdw = 1 if event_type == 'ENTRY' else 0
 
-        jml =  detector.zone_counts[zone_id]['total']
-        cup = 1 if event_type == 'ENTRY' else 0
-        cdw = 1 if event_type == 'EXIT' else 0
-
-        query = """
-            INSERT INTO info (ip_kamera, zone_id, keterangan, tgl, jam, jml, cup, cdw, adj, `default`, status, isFull, min)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 0, 1, 0, 1, 0)
+        query_insert = """
+            INSERT INTO dgroup (zone_id, zgroup, ip_kamera, zdesc, tgl, jam, jml, cup, cdw, adj, `default`, status, isFull, min)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 0, 1, 0, 1, 0)
             ON DUPLICATE KEY UPDATE
+                zgroup = VALUES(zgroup),
+                tgl = VALUES(tgl),
+                jam = VALUES(jam),
+                zdesc = VALUES(zdesc),
                 cup = cup + VALUES(cup),
                 cdw = cdw + VALUES(cdw),
-                jml = CASE WHEN jml = 0 THEN VALUES(jml) ELSE jml END
+                jml = VALUES(jml)
         """
-        cursor.execute(query, (cam_ip, zone_id, keterangan, current_date, current_time, jml, cup, cdw))
+        cursor_dgroup.execute(query_insert, (zone_id, zgroup, cam_ip, keterangan, current_date, current_time, jml, cup, cdw))
 
-        conn.commit()
-        cursor.close()
-        conn.close()
+        conn_dgroup.commit()
+        cursor_dgroup.close()
+        conn_dgroup.close()
 
     except mysql.connector.Error as err:
         print(f"Error saving to info table: {err}")

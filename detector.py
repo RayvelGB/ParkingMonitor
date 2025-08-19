@@ -10,6 +10,20 @@ import time
 import mysql.connector
 from threading import Thread, Lock
 
+# DB_CONFIG = {
+#     'host': '192.168.0.29',
+#     'user': 'root',
+#     'password': '1234',
+#     'database': 'entry_db'
+# }
+
+# DGROUP_CONFIG = {
+#     'host': '192.168.0.29',
+#     'user': 'root',
+#     'password': '1234',
+#     'database': 'sap8di'
+# }
+
 DB_CONFIG = {
     'host': 'localhost',
     'user': 'root',
@@ -24,6 +38,7 @@ class TripwireDetector:
         self.camera_id = camera_id
         self.camera_name = 'Unnamed'
         self.event_callback = event_callback
+        self.detection_type = 'tripwire'
 
         self.raw_frame = None
         self.processed_frame = None
@@ -264,6 +279,7 @@ class ParkingDetector:
         self.rtsp_url = rtsp_url
         self.camera_id = camera_id
         self.camera_name = 'Unnamed'
+        self.detection_type = 'parking'
 
         self.raw_frame = None
         self.processed_frame = None
@@ -454,42 +470,6 @@ class ParkingDetector:
 
         return camera_ip
 
-    def save_to_info_table(self, zone_id, event_type):
-        try:
-            conn = mysql.connector.connect(**DB_CONFIG)
-            cursor = conn.cursor()
-
-            current_date = time.strftime("%Y-%m-%d")
-            current_time = time.strftime("%H:%M:%S")
-            cam_ip = self.get_camera_ip(self.rtsp_url)
-
-            zone_info = self.zone_counts.get(zone_id)
-            if not zone_info:
-                return
-            
-            keterangan = self.camera_name + ' ' + zone_info['name']
-
-            jml = zone_info['total']
-            cup = 1 if event_type == 'occupied' else 0
-            cdw = 1 if event_type == 'vacated' else 0
-
-            query = """
-                INSERT INTO info (ip_kamera, zone_id, keterangan, tgl, jam, jml, cup, cdw, adj, `default`, status, isFull, min)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 0, 1, 0, 1, 0)
-                ON DUPLICATE KEY UPDATE
-                    cup = cup + VALUES(cup),
-                    cdw = cdw + VALUES(cdw),
-                    jml = CASE WHEN jml = 0 THEN VALUES(jml) ELSE jml END
-            """
-            cursor.execute(query, (cam_ip, zone_id, keterangan, current_date, current_time, jml, cup, cdw))
-
-            conn.commit()
-            cursor.close()
-            conn.close()
-
-        except mysql.connector.Error as err:
-            print(f"Error saving log to DB: {err}")
-
     # -- Run the detection --
     def run(self):
         while self.running:
@@ -527,7 +507,6 @@ class ParkingDetector:
                             log = f"[{time.strftime('%H:%M:%S')}] '{self.zone_counts.get(zone_id, {}).get('name', 'N/A')}' - Slot {idx+1} OCCUPIED"
                             self.log_messages.append(log)
                             self.save_logs_to_db(log)
-                            self.save_to_info_table(zone_id, event_type='occupied')
                 else:
                     if status['occupied']:
                         status['occupied'] = False
@@ -535,7 +514,6 @@ class ParkingDetector:
                         log = f"[{time.strftime('%H:%M:%S')}] '{self.zone_counts.get(zone_id, {}).get('name', 'N/A')}' - Slot {idx+1} VACATED ({duration/60:.1f} mins)"
                         self.log_messages.append(log)
                         self.save_logs_to_db(log)
-                        self.save_to_info_table(zone_id, event_type='vacated')
                     status['detection_start_time'] = None
 
                 if status['occupied'] and zone_id in occupied_per_zone:
