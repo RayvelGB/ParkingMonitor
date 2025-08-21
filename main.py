@@ -11,6 +11,8 @@ from passlib.context import CryptContext
 import time
 import schedule
 
+# -- INITIALIZE APP & VARIABLES --
+
 app = FastAPI()
 video_detectors = {}
 detector_lock = Lock()

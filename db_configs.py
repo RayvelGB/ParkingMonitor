@@ -2,7 +2,7 @@ DB_CONFIG = {
     'host': 'localhost',
     'user': 'root',
     'password': '',
-    'database': 'entry_db'
+    'database': 'entry_db' # -> Database name
 }
 
 DGROUP_CONFIG = {
