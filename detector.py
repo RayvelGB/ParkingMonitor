@@ -43,9 +43,10 @@ class TripwireDetector:
         self.reload_configuration()
         self.log_messages = self.load_logs_from_db()
 
-        self.reader_thread = Thread(target=self._frame_reader, daemon=True)
+        self.reader_thread = Thread(target=self._frame_reader, daemon=True) # -> Separate stream reading to not overload whole system
         self.reader_thread.start()
 
+    # -- Read Frames from RTSP Stream --
     def _frame_reader(self):
         print(f"[{time.strftime('%H:%M:%S')}] Cam {self.camera_id}: Starting frame reader thread.")
         while self.running:
@@ -305,9 +306,10 @@ class ParkingDetector:
         self.reload_configuration()
         self.log_messages = self.load_logs_from_db()
 
-        self.reader_thread = Thread(target=self._frame_reader, daemon=True)
+        self.reader_thread = Thread(target=self._frame_reader, daemon=True) # -> Separate stream reading to not overload whole system
         self.reader_thread.start()
 
+     # -- Read Frames from RTSP Stream --
     def _frame_reader(self):
         print(f"[{time.strftime('%H:%M:%S')}] Cam {self.camera_id}: Starting frame reader thread.")
         while self.running:
