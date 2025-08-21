@@ -2,6 +2,7 @@ from fastapi import FastAPI, Form, Request
 from fastapi.responses import StreamingResponse, JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from detector import TripwireDetector, ParkingDetector
+from db_configs import DB_CONFIG, DGROUP_CONFIG
 from threading import Thread, Lock
 import uuid
 import json, cv2, os, io
@@ -27,35 +28,6 @@ def on_startup():
     cleanup_thread.start()
 
 # -- Database Configuration --
-# DB_CONFIG = {
-#     'host': '192.168.0.29',
-#     'user': 'root',
-#     'password': '1234',
-#     'database': 'entry_db'
-# }
-
-# DGROUP_CONFIG = {
-#     'host': '192.168.0.29',
-#     'user': 'root',
-#     'password': '1234',
-#     'database': 'sap8di'
-# }
-
-DB_CONFIG = {
-    'host': 'localhost',
-    'user': 'root',
-    'password': '',
-    'database': 'entry_db'
-}
-
-DGROUP_CONFIG = {
-    'host': 'localhost',
-    'user': 'root',
-    'password': '',
-    'database': 'sap8di'
-}
-
-
 # Setup database
 def createDB_and_tables():
     try:
