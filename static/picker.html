@@ -116,19 +116,20 @@
                 </div>
                 
                 <div class="mt-auto pt-6 space-y-2">
-                     <button id="undo-btn" class="w-full bg-yellow-600 hover:bg-yellow-700 py-2 rounded-lg">Undo Point</button>
-                     <button id="save-btn" class="w-full bg-blue-600 hover:bg-blue-700 py-3 rounded-lg">Save & Finish</button>
-                     <button id="clear-btn" class="w-full bg-red-600 hover:bg-red-700 py-2 rounded-lg">Clear All Boxes</button>
-                     <p id="status" class="text-center text-gray-400 min-h-[24px] mt-2"></p>
+                    <button id="undo-btn" class="w-full bg-yellow-600 hover:bg-yellow-700 py-2 rounded-lg">Undo Point</button>
+                    <button id="save-btn" class="w-full bg-blue-600 hover:bg-blue-700 py-3 rounded-lg">Save & Finish</button>
+                    <button id="clear-btn" class="w-full bg-red-600 hover:bg-red-700 py-2 rounded-lg">Clear All Boxes</button>
+                    <p id="status" class="text-center text-gray-400 min-h-[24px] mt-2"></p>
                 </div>
             </div>
 
             <!-- Canvas -->
             <div class="lg:col-span-3 bg-gray-800 rounded-xl shadow-xl p-6 text-center">
-                 <p id="canvas-status" class="text-gray-400 mb-4 text-lg">Select a zone, then click 4 points on the image to draw a box.</p>
+                <p id="canvas-status" class="text-gray-400 mb-4 text-lg">Select a zone, then click 4 points on the image to draw a box.</p>
                 <div class="canvas-container inline-block">
                     <canvas id="canvas"></canvas>
                 </div>
+                <p id="canvas-status" class="text-gray-400 mt-2 text-lg">Right-Click on a box to delete it.</p>
             </div>
         </main>
     </div>
