@@ -1,11 +1,11 @@
-from fastapi import FastAPI, Form, Request
+from fastapi import FastAPI, Request
 from fastapi.responses import StreamingResponse, JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from detector import TripwireDetector, ParkingDetector
 from db_configs import DB_CONFIG, DGROUP_CONFIG
 from threading import Thread, Lock
 import uuid
-import json, cv2, os, io
+import json, cv2, io
 import mysql.connector
 from passlib.context import CryptContext
 import time

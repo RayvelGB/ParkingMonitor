@@ -1,5 +1,4 @@
 import cv2
-import os
 import torch
 import torchvision
 from torchvision.models.detection.faster_rcnn import FastRCNNPredictor
