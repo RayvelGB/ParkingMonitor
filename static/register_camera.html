@@ -166,7 +166,6 @@
                     userMenu.classList.toggle('hidden');
                 });
 
-                // *** NEW: Close dropdown when clicking outside ***
                 window.addEventListener('click', (event) => {
                     if (!userMenu.classList.contains('hidden') && !userMenuButton.contains(event.target)) {
                         userMenu.classList.add('hidden');

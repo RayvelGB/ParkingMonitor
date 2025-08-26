@@ -34,5 +34,5 @@ CONFIRMATION TIME -> Waktu delay ketika suatu object dideteksi pada lot
 11. Ketika di dashboard, tombol "Edit Bounds" untuk balik ke halaman untuk edit kotak.
 12. Jika setting kamera counting (Tripwire), maka ada tombol "Set Spaces" untuk mengedit jumlah parkiran per zona (Kalau bisa jangan langsung edit jumlah dari database karena harus reload program).
 13. Terdapat settings di kanan atas untuk mengatur deteksi AI.
-14. Sebelah setting ada tombol akun dengan initals (admin -> A), untuk logout atau balik ke halaman untuk daftar kamera baru.
+14. Sebelah setting ada tombol akun dengan initals dari username (admin -> A), untuk logout atau balik ke halaman untuk daftar kamera baru.
 15. Setting pada kamera lot (Parking) ada 3, "Detection Threshold", "IOU Threshold", dan "Confirmation Time". Sedangkan pada kamera counting (Tripwire) hanya ada "Detection Threshold".

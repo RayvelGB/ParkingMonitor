@@ -184,7 +184,6 @@
                 userMenu.classList.toggle('hidden');
             });
 
-            // *** NEW: Close dropdown when clicking outside ***
             window.addEventListener('click', (event) => {
                 if (!userMenu.classList.contains('hidden') && !userMenuButton.contains(event.target)) {
                     userMenu.classList.add('hidden');
@@ -473,7 +472,6 @@
                 redraw();
                 statusEl.textContent = "Ready to edit.";
 
-                // FIX: Corrected the fetch URL
                 const detailsResponse = await fetch(`/get_detection_type/${camera_id}?user_id=${user.user_id}`);
                 const details = await detailsResponse.json();
                 if (details.detection_type === 'parking') {
