@@ -27,7 +27,7 @@ CONFIRMATION TIME -> Waktu delay ketika suatu object dideteksi pada lot
 4. Login menggunakan username "admin" dan password "admin" atau register user baru.
 5. Untuk sekarang, sudah terdaftar 2 kamera (Kamera Lantai 4) yang sama, dengan setting lot (Parking) dan counting (Tripwire).
 6. Saat menyalakan program, kamera dan detektor langsung nyala jadi bisa langsung tekan "Launch Stream" untuk ke dashboard.
-7. Jika ingin daftar kamera baru harus dalam format "rtsp://username:password@ip_address:port/stream_path", contoh kamera lantai 4: "rtsp://admin:admin@192.168.0.187:554/11".
+7. Jika ingin daftar kamera baru harus dalam format "rtsp://username:password@ip_address:port/stream_path", contoh kamera lantai 4: "rtsp://admin:admin@192.168.0.187:554/11". (Bisa gunakan ODM untuk cek stream path)
 8. Untuk menggambar kotak, harus membuat zona dan klik zona terlebih dahulu.
 9. Kotak akan terbentuk dari 4 titik. Klik untuk membuat titik.
 10. Ada slider diatas untuk ganti setting kamera lot (Parking) dan counting (Tripwire).

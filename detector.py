@@ -98,13 +98,23 @@ class TripwireDetector:
 
             cursor.execute(query, (self.camera_id,))
             zones = cursor.fetchall()
-            self.zone_counts = {
-                zone['id']: {
+
+            new_zone_counts = {}
+            for zone in zones:
+                total = zone.get('total_spaces') or 0
+                cdw = zone.get('cdw') or 0
+                cup = zone.get('cup') or 0
+
+                occupied = cdw - cup
+                available = total - occupied
+
+                new_zone_counts[zone['id']] = {
                     'name': zone['zone_name'],
-                    'total': zone['total_spaces'],
-                    'available': zone['total_spaces'] - (zone['cdw'] - zone['cup'])
-                } for zone in zones
-            }
+                    'total': total,
+                    'available': available
+                }
+            
+            self.zone_counts = new_zone_counts
             print(f"Loaded {len(self.zone_counts)} zones for camera {self.camera_id}.")
 
             cursor.execute("SELECT box_index, points, zone_id, mode FROM bounding_boxes WHERE camera_id = %s ORDER BY box_index ASC", (self.camera_id,))
