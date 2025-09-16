@@ -1,4 +1,8 @@
-<p align="center"><h1 align="center">ParkingMonitor</h1></p>
+<p align="center">
+    <img src="https://raw.githubusercontent.com/RayvelGB/ParkingMonitor/refs/heads/main/static/logo.svg" align="center" width="10%">
+	<h1 align="center">ParkingMonitor</h1>
+</p>
+
 <p align="center">
 	<img src="https://img.shields.io/github/last-commit/RayvelGB/ParkingMonitor?style=default&logo=git&logoColor=white&color=0080ff" alt="last-commit">
 	<img src="https://img.shields.io/github/languages/top/RayvelGB/ParkingMonitor?style=default&color=0080ff" alt="repo-top-language">
